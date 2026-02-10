@@ -1,12 +1,21 @@
 """Insight generation and analysis of query results"""
 from typing import Dict, List, Any, Optional
-from langchain.chat_models import ChatOpenAI
+
+try:
+    from langchain.chat_models import ChatOpenAI
+except ImportError:
+    try:
+        from langchain_openai import ChatOpenAI
+    except ImportError:
+        ChatOpenAI = None
 
 
 class InsightGenerator:
     """Generates AI-driven insights from query results"""
 
     def __init__(self, openai_api_key: str, model: str = "gpt-4"):
+        if ChatOpenAI is None:
+            raise ImportError("LangChain OpenAI integration not available")
         self.llm = ChatOpenAI(
             api_key=openai_api_key, model=model, temperature=0.3
         )

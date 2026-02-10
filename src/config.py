@@ -1,7 +1,7 @@
 """Configuration management for SQL Query Buddy"""
 import os
 from typing import Literal
-from pydantic import Field
+from pydantic import Field, ConfigDict
 
 try:
     from pydantic_settings import BaseSettings
@@ -48,9 +48,11 @@ class Settings(BaseSettings):
     gradio_share: bool = Field(default=False, alias="GRADIO_SHARE")
     gradio_server_port: int = Field(default=7860, alias="GRADIO_SERVER_PORT")
 
-    class Config:
-        env_file = ".env"
-        case_sensitive = False
+    model_config = ConfigDict(
+        env_file=".env",
+        case_sensitive=False,
+        populate_by_name=True
+    )
 
 
 # Load settings from environment
