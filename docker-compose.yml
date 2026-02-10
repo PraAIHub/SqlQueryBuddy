@@ -1,0 +1,20 @@
+version: '3.8'
+
+services:
+  sql-query-buddy:
+    build: .
+    container_name: sql-query-buddy
+    ports:
+      - "7860:7860"
+    environment:
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - OPENAI_MODEL=gpt-4
+      - DATABASE_TYPE=sqlite
+      - DATABASE_URL=sqlite:///retail.db
+      - VECTOR_DB_TYPE=faiss
+      - DEBUG=false
+      - GRADIO_SHARE=false
+    volumes:
+      - ./data:/app/data
+      - ./logs:/app/logs
+    restart: unless-stopped
