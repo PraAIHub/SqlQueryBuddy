@@ -2,7 +2,11 @@
 import os
 from typing import Literal
 from pydantic import Field
-from pydantic_settings import BaseSettings
+
+try:
+    from pydantic_settings import BaseSettings
+except ImportError:
+    from pydantic import BaseSettings
 
 
 class Settings(BaseSettings):
