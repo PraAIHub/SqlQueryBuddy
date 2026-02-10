@@ -231,63 +231,27 @@ pytest tests/integration/
 
 ## 🗺️ Roadmap
 
-### Phase 1: Core MVP (Week 1-2)
+### Phase 1: MVP Delivery (Weekend Sprint)
 - ✅ Basic SQL generation from natural language
 - ✅ Database connection & execution
 - ✅ Simple Gradio chat interface
 - ✅ Context retention across turns
 - ✅ RAG system with schema embeddings
-
-### Phase 2: Optimization & Insights (Week 2-3)
 - 🔄 Query optimization suggestions
 - 🔄 AI-driven insights generation
 - 🔄 Advanced multi-table reasoning
 - 🔄 Query explanation feature
-- 🔄 Performance metrics dashboard
-
-### Phase 3: Polish & Deployment (Week 3+)
 - 🔄 Enhanced UI/UX improvements
 - 🔄 Comprehensive testing suite
 - 🔄 Docker containerization
 - 🔄 Production deployment setup
 - 🔄 Documentation and API docs
 
-**Timeline**: Aligned with February 15, 2026 contest deadline
-
-## 🤝 Contributing
-
-This is a Codecademy GenAI Bootcamp Contest submission. Contributions are welcome!
-
-1. Fork the repository
-2. Create a feature branch (`git checkout -b feature/amazing-feature`)
-3. Commit changes (`git commit -m 'Add amazing feature'`)
-4. Push to branch (`git push origin feature/amazing-feature`)
-5. Open a Pull Request
-
-### Code Guidelines
-- Follow PEP 8 style guidelines
-- Add tests for new features
-- Update documentation as needed
-- Keep commits atomic and descriptive
+**Timeline**: Delivery by February 15, 2026 contest deadline
 
 ## 📄 License
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
-
-## 🙏 Acknowledgments
-
-- **Codecademy GenAI Bootcamp** - For the contest opportunity and learning resources
-- **LangChain** - Powerful framework for LLM applications
-- **OpenAI** - GPT models and embeddings API
-- **Vector Databases** - FAISS, Chroma, Milvus communities
-- **Open Source Community** - All the amazing libraries we build upon
-
-## 📞 Support
-
-For questions or issues:
-- 📧 Email: [Contact Information]
-- 🐙 GitHub Issues: [Repository Issues]
-- 💬 Discussions: [GitHub Discussions]
 
 ---
 
