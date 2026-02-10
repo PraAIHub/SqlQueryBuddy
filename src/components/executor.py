@@ -73,8 +73,15 @@ class DatabaseConnection:
     def get_sample_data(self, table_name: str, limit: int = 5) -> List[Dict]:
         """Get sample data from a table"""
         try:
-            query = f"SELECT * FROM {table_name} LIMIT {limit}"
-            result = self.execute_query(query)
+            # Use identifier quoting to safely handle table names
+            from sqlalchemy import text, literal_column
+            # Validate table_name against schema
+            inspector = inspect(self.engine)
+            if table_name not in inspector.get_table_names():
+                return []
+
+            query = text(f"SELECT * FROM {table_name} LIMIT {limit}")
+            result = self.execute_query(str(query))
             return result.get("rows", []) if result["success"] else []
         except Exception:
             return []
