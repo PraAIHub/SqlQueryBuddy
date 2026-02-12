@@ -67,7 +67,7 @@ pytest tests/unit/ --cov=src tests/
 
 def test_sql_injection_prevention():
     """Verify dangerous queries are blocked"""
-    is_valid, error = SQLValidator.validate("DROP TABLE users")
+    is_valid, error = SQLValidator.validate("DROP TABLE customers")
     assert is_valid is False
     assert "DROP" in error
 ```
@@ -105,7 +105,7 @@ def test_query_generation_and_execution(self, temp_db):
     generator = SQLGeneratorMock()
 
     result = generator.generate(
-        user_query="Show me all users",
+        user_query="Show me all customers",
         schema_context=str(db.get_schema()),
     )
 
@@ -128,7 +128,7 @@ python -m src.main
 **Test Checklist**:
 ```
 [ ] Start Chat
-  [ ] Type "Show me all users"
+  [ ] Type "Show me all customers"
   [ ] Verify SQL is generated
   [ ] Check results display
   [ ] Verify explanation shown
@@ -214,7 +214,7 @@ def test_query_execution_speed():
     db = DatabaseConnection(database_url)
 
     start = time.time()
-    result = executor.execute("SELECT * FROM users")
+    result = executor.execute("SELECT * FROM customers")
     elapsed = time.time() - start
 
     assert elapsed < 3.0, f"Query took {elapsed}s (expected <3s)"
@@ -232,7 +232,7 @@ from locust import HttpUser, task
 class UserBehavior(HttpUser):
     @task
     def query_endpoint(self):
-        self.client.post("/api/query", json={"query": "Show users"})
+        self.client.post("/api/query", json={"query": "Show customers"})
 
 # Run load test
 locust -f locustfile.py --host=http://localhost:7860
@@ -247,7 +247,7 @@ locust -f locustfile.py --host=http://localhost:7860
 def test_sql_injection_attempts():
     """Verify protection against SQL injection"""
     dangerous_queries = [
-        "'; DROP TABLE users; --",
+        "'; DROP TABLE customers; --",
         "1' OR '1'='1",
         "admin' --",
         "' UNION SELECT * FROM passwords --"
@@ -331,7 +331,7 @@ curl -X POST http://localhost:7860/api/schema || exit 1
 # Test 3: Simple query works
 curl -X POST http://localhost:7860/api/query \
   -H "Content-Type: application/json" \
-  -d '{"query": "Show me all users"}' || exit 1
+  -d '{"query": "Show me all customers"}' || exit 1
 
 echo "✅ All smoke tests passed!"
 ```
@@ -374,7 +374,7 @@ done
 
 ### Scenario 1: Basic Query
 ```
-Input:  "Show me all users"
+Input:  "Show me all customers"
 Expected:
   ✅ SQL generated
   ✅ Query executes
@@ -384,9 +384,9 @@ Expected:
 
 ### Scenario 2: Multi-turn Conversation
 ```
-Turn 1: "Show users"
+Turn 1: "Show customers"
 Turn 2: "How many products?"
-Turn 3: "Show me Alice's orders"
+Turn 3: "Show me Alice Chen's orders"
 
 Expected:
   ✅ Context maintained
@@ -396,7 +396,7 @@ Expected:
 
 ### Scenario 3: Error Handling
 ```
-Input:  "DROP TABLE users"
+Input:  "DROP TABLE customers"
 Expected:
   ✅ Blocked with clear error
   ✅ No data modified
@@ -499,22 +499,23 @@ jobs:
 
 ## 7. TEST DATA MANAGEMENT 📊
 
-### Sample Data Included
-- 3 users
-- 4 products
-- 5 orders with foreign keys
+### Sample Data Included (Retail Commerce Schema)
+- 5 customers (Alice Chen, John Patel, Maria Lopez, David Johnson, Sofia Khan)
+- 5 products (Laptop Pro 15, Wireless Mouse, Standing Desk, Headphones, Office Chair)
+- 6 orders with customer references
+- 10 order items linking orders to products
 
 ### Add More Test Data
 ```python
 # Create tests/fixtures/sample_data.py
 
 EXTENDED_TEST_DATA = {
-    "users": [
-        {"id": 1, "name": "User 1", "email": "user1@example.com"},
-        # ... more users
+    "customers": [
+        {"customer_id": 1, "name": "Alice Chen", "email": "alice.chen@example.com", "region": "California"},
+        # ... more customers
     ],
     "products": [
-        {"id": 1, "name": "Product 1", "price": 99.99},
+        {"product_id": 1, "name": "Laptop Pro 15", "category": "Electronics", "price": 1200.00},
         # ... more products
     ]
 }

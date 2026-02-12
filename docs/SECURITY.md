@@ -32,7 +32,7 @@ SQL Query Buddy has been audited for common security vulnerabilities. The applic
 ```python
 # SAFE ✅
 from sqlalchemy import text
-result = conn.execute(text("SELECT * FROM users WHERE id = :id"))
+result = conn.execute(text("SELECT * FROM customers WHERE customer_id = :id"))
 ```
 
 **2. SQL Validator - Dangerous Keywords Blocked**
@@ -40,8 +40,8 @@ result = conn.execute(text("SELECT * FROM users WHERE id = :id"))
 DANGEROUS_KEYWORDS = ["DROP", "DELETE", "TRUNCATE", "ALTER", "CREATE INDEX", "EXEC"]
 
 is_valid, error = SQLValidator.validate(query)
-# DROP TABLE users → BLOCKED ❌
-# SELECT * FROM users → ALLOWED ✅
+# DROP TABLE customers → BLOCKED ❌
+# SELECT * FROM customers → ALLOWED ✅
 ```
 
 **3. Query Validation Before Execution**
@@ -56,14 +56,14 @@ User Input → NLP Parser → SQL Generator → Validator → Executor
 #### Test Results: 10/10 ✅
 
 ```
-✅ SELECT * FROM users → Accepted
-✅ SELECT id, name FROM users WHERE id = 1 → Accepted
+✅ SELECT * FROM customers → Accepted
+✅ SELECT customer_id, name FROM customers WHERE customer_id = 1 → Accepted
 ✅ WITH cte AS (...) → Accepted
-❌ DROP TABLE users → BLOCKED
-❌ '; DROP TABLE users; -- → BLOCKED
+❌ DROP TABLE customers → BLOCKED
+❌ '; DROP TABLE customers; -- → BLOCKED
 ❌ 1' OR '1'='1 → BLOCKED
-❌ INSERT INTO users VALUES → BLOCKED
-❌ DELETE FROM users → BLOCKED
+❌ INSERT INTO customers VALUES → BLOCKED
+❌ DELETE FROM customers → BLOCKED
 ❌ TRUNCATE TABLE → BLOCKED
 ❌ ALTER TABLE → BLOCKED
 ```
@@ -203,7 +203,7 @@ except SQLAlchemyError as e:
 **2. Safe Error Messages**
 ```python
 # ❌ BAD - Leaks info
-"Error: Column 'users.password' does not exist"
+"Error: Column 'customers.password' does not exist"
 
 # ✅ GOOD - Generic message
 "Query execution failed"
@@ -254,7 +254,7 @@ engine = create_engine(
 **2. Parameterized Queries**
 ```python
 # SQLAlchemy handles escaping automatically
-result = conn.execute(text("SELECT * FROM users WHERE id = :id"), {"id": user_id})
+result = conn.execute(text("SELECT * FROM customers WHERE customer_id = :id"), {"id": user_id})
 ```
 
 **3. Read-Only by Default**
@@ -700,7 +700,7 @@ detect-secrets scan
 ```python
 # tests/security/test_sql_injection.py
 def test_sql_injection_prevention():
-    dangerous = ["'; DROP TABLE --", "1' OR '1'='1"]
+    dangerous = ["'; DROP TABLE customers --", "1' OR '1'='1"]
     for query in dangerous:
         is_valid, error = SQLValidator.validate(query)
         assert not is_valid

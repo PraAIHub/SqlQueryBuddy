@@ -1,9 +1,15 @@
 """Unit tests for core components"""
 import pytest
 from src.components.nlp_processor import QueryParser, ContextManager, ConversationTurn
-from src.components.sql_generator import SQLValidator
+from src.components.sql_generator import SQLValidator, SQLGeneratorMock
 from src.components.optimizer import QueryOptimizer
-from src.components.insights import PatternDetector, TrendAnalyzer
+from src.components.insights import PatternDetector, TrendAnalyzer, LocalInsightGenerator
+from src.components.rag_system import (
+    SimpleEmbeddingProvider,
+    RAGSystem,
+    FAISSVectorDB,
+    InMemoryVectorDB,
+)
 
 
 class TestQueryParser:
@@ -11,7 +17,7 @@ class TestQueryParser:
 
     def test_extract_intent_retrieve(self):
         parser = QueryParser()
-        result = parser.parse("Show me all users")
+        result = parser.parse("Show me all customers")
         assert result["intent"] in ["retrieve", "general"]
 
     def test_extract_intent_aggregate(self):
@@ -34,7 +40,7 @@ class TestContextManager:
         manager.add_response(
             user_input="Hello",
             assistant_response="Hi there!",
-            generated_sql="SELECT * FROM users",
+            generated_sql="SELECT * FROM customers",
         )
         history = manager.current_context.conversation_history
         assert len(history) == 1
@@ -51,19 +57,28 @@ class TestSQLValidator:
     """Test SQL validation"""
 
     def test_valid_select_query(self):
-        is_valid, error = SQLValidator.validate("SELECT * FROM users")
+        is_valid, error = SQLValidator.validate("SELECT * FROM customers")
         assert is_valid is True
 
     def test_invalid_drop_statement(self):
-        is_valid, error = SQLValidator.validate("DROP TABLE users")
+        is_valid, error = SQLValidator.validate("DROP TABLE customers")
         assert is_valid is False
 
     def test_invalid_non_select(self):
-        is_valid, error = SQLValidator.validate("INSERT INTO users VALUES (1, 'John')")
+        is_valid, error = SQLValidator.validate("INSERT INTO customers VALUES (1, 'John')")
         assert is_valid is False
 
+    def test_invalid_update_statement(self):
+        is_valid, error = SQLValidator.validate("UPDATE customers SET name='x'")
+        assert is_valid is False
+
+    def test_no_false_positive_on_column_names(self):
+        """Column names like is_deleted should not trigger the DELETE check."""
+        is_valid, error = SQLValidator.validate("SELECT is_deleted FROM customers")
+        assert is_valid is True
+
     def test_multiple_statements(self):
-        is_valid, error = SQLValidator.validate("SELECT * FROM users; DELETE FROM products;")
+        is_valid, error = SQLValidator.validate("SELECT * FROM customers; DELETE FROM products;")
         assert is_valid is False
 
 
@@ -72,18 +87,18 @@ class TestQueryOptimizer:
 
     def test_check_select_star(self):
         optimizer = QueryOptimizer()
-        result = optimizer.analyze("SELECT * FROM users")
+        result = optimizer.analyze("SELECT * FROM customers")
         assert result["total_suggestions"] > 0
 
     def test_clean_query(self):
         optimizer = QueryOptimizer()
-        result = optimizer.analyze("SELECT id, name FROM users WHERE id = 1")
+        result = optimizer.analyze("SELECT customer_id, name FROM customers WHERE customer_id = 1")
         # Should have minimal or no suggestions
         assert isinstance(result["total_suggestions"], int)
 
     def test_optimization_level(self):
         optimizer = QueryOptimizer()
-        result = optimizer.analyze("SELECT * FROM users")
+        result = optimizer.analyze("SELECT * FROM customers")
         assert result["optimization_level"] in ["excellent", "good", "needs_optimization"]
 
 
@@ -134,6 +149,203 @@ class TestTrendAnalyzer:
         trends = TrendAnalyzer.analyze_trends(data)
         assert "value" in trends
         assert trends["value"]["direction"] == "decreasing"
+
+
+class TestRAGSystem:
+    """Test RAG pipeline components"""
+
+    @pytest.fixture
+    def rag_with_schema(self):
+        """Create RAG system initialized with test schema."""
+        provider = SimpleEmbeddingProvider()
+        schema = {
+            "customers": {
+                "columns": {
+                    "name": {"type": "TEXT"},
+                    "email": {"type": "TEXT"},
+                    "region": {"type": "TEXT"},
+                }
+            },
+            "products": {
+                "columns": {
+                    "name": {"type": "TEXT"},
+                    "price": {"type": "REAL"},
+                    "category": {"type": "TEXT"},
+                }
+            },
+            "orders": {
+                "columns": {
+                    "total_amount": {"type": "REAL"},
+                    "order_date": {"type": "TEXT"},
+                }
+            },
+        }
+        texts = []
+        for table_name, table_info in schema.items():
+            texts.append(f"Table {table_name}")
+            for col_name, col_info in table_info.get("columns", {}).items():
+                texts.append(f"Column {col_name} in {table_name} {col_info.get('type', '')}")
+        provider.build_vocabulary(texts)
+        rag = RAGSystem(provider, FAISSVectorDB())
+        rag.initialize_schema(schema)
+        return rag
+
+    def test_embedding_provider_produces_vectors(self):
+        provider = SimpleEmbeddingProvider()
+        provider.build_vocabulary(["Table customers", "Column price in products"])
+        vec = provider.embed("customers name")
+        assert isinstance(vec, list)
+        assert len(vec) > 0
+
+    def test_embedding_batch(self):
+        provider = SimpleEmbeddingProvider()
+        provider.build_vocabulary(["Table customers", "Column price"])
+        vecs = provider.embed_batch(["customers", "price"])
+        assert len(vecs) == 2
+
+    def test_faiss_store_and_search(self):
+        db = FAISSVectorDB()
+        db.store("key1", [1.0, 0.0, 0.0], {"name": "a"})
+        db.store("key2", [0.0, 1.0, 0.0], {"name": "b"})
+        results = db.search([1.0, 0.0, 0.0], top_k=1)
+        assert len(results) == 1
+        assert results[0][0] == "key1"
+
+    def test_faiss_clear(self):
+        db = FAISSVectorDB()
+        db.store("key1", [1.0, 0.0], {"name": "a"})
+        db.clear()
+        results = db.search([1.0, 0.0], top_k=5)
+        assert len(results) == 0
+
+    def test_rag_retrieve_context(self, rag_with_schema):
+        context = rag_with_schema.retrieve_context("customer names", top_k=3)
+        assert isinstance(context, list)
+        assert len(context) > 0
+        assert "type" in context[0]
+
+    def test_rag_schema_context_string(self, rag_with_schema):
+        result = rag_with_schema.get_schema_context_string("product prices")
+        assert "Relevant Schema Elements:" in result
+        assert "Table:" in result or "Column:" in result
+
+
+class TestLocalInsightGenerator:
+    """Test local insight generation"""
+
+    def test_empty_data(self):
+        gen = LocalInsightGenerator()
+        result = gen.generate_insights([], "query")
+        assert "No data" in result
+
+    def test_top_performer_insight(self):
+        gen = LocalInsightGenerator()
+        data = [
+            {"name": "Alice", "total_spent": 5000},
+            {"name": "Bob", "total_spent": 2000},
+            {"name": "Charlie", "total_spent": 1000},
+        ]
+        result = gen.generate_insights(data, "top customers")
+        assert "Alice" in result
+        assert "%" in result  # Should mention percentage
+
+    def test_categorical_insight(self):
+        gen = LocalInsightGenerator()
+        data = [
+            {"category": "Electronics", "revenue": 8000},
+            {"category": "Electronics", "revenue": 3000},
+            {"category": "Furniture", "revenue": 2000},
+        ]
+        result = gen.generate_insights(data, "revenue by category")
+        assert len(result) > 0
+
+    def test_trend_insight_with_time_column(self):
+        gen = LocalInsightGenerator()
+        data = [
+            {"month": "2024-01", "monthly_revenue": 1000},
+            {"month": "2024-02", "monthly_revenue": 1500},
+            {"month": "2024-03", "monthly_revenue": 2000},
+        ]
+        result = gen.generate_insights(data, "monthly trend")
+        assert "increasing" in result.lower()
+
+
+class TestSQLGeneratorMockPatterns:
+    """Test that mock SQL generator patterns produce valid queries."""
+
+    def test_top_customers_query(self):
+        mock = SQLGeneratorMock()
+        result = mock.generate("Show me the top 5 customers by total purchase amount", "")
+        assert result["success"]
+        assert "customers" in result["generated_sql"].lower()
+        assert "JOIN" in result["generated_sql"]
+
+    def test_category_revenue_query(self):
+        mock = SQLGeneratorMock()
+        result = mock.generate("Which product category made the most revenue?", "")
+        assert result["success"]
+        assert "category" in result["generated_sql"].lower()
+
+    def test_region_sales_query(self):
+        mock = SQLGeneratorMock()
+        result = mock.generate("Show total sales per region", "")
+        assert result["success"]
+        assert "region" in result["generated_sql"].lower()
+
+    def test_monthly_trend_query(self):
+        mock = SQLGeneratorMock()
+        result = mock.generate("Show the trend of monthly revenue over time", "")
+        assert result["success"]
+        assert "strftime" in result["generated_sql"] or "month" in result["generated_sql"].lower()
+
+    def test_follow_up_query(self):
+        mock = SQLGeneratorMock()
+        # First query
+        mock.generate("Show me top customers by spending", "")
+        # Follow-up
+        result = mock.generate("From the previous result, filter customers from California only", "")
+        assert result["success"]
+        assert "California" in result["generated_sql"]
+
+    def test_returning_customers_query(self):
+        mock = SQLGeneratorMock()
+        result = mock.generate("Find the average order value for returning customers", "")
+        assert result["success"]
+        assert "HAVING" in result["generated_sql"]
+        assert "COUNT" in result["generated_sql"]
+
+    def test_january_unique_products_query(self):
+        mock = SQLGeneratorMock()
+        result = mock.generate("How many unique products were sold in January?", "")
+        assert result["success"]
+        assert "strftime" in result["generated_sql"]
+        assert "'01'" in result["generated_sql"]
+
+    def test_orders_more_than_3_items_query(self):
+        mock = SQLGeneratorMock()
+        result = mock.generate("How many orders contained more than 3 items?", "")
+        assert result["success"]
+        assert "HAVING" in result["generated_sql"]
+        assert "item_count > 3" in result["generated_sql"]
+
+    def test_follow_up_without_context(self):
+        mock = SQLGeneratorMock()
+        result = mock.generate("From the previous result, filter by California", "")
+        assert result["success"]
+        assert "No previous query" in result["explanation"]
+
+    def test_follow_up_with_conversation_history(self):
+        mock = SQLGeneratorMock()
+        history = "Turn 1:\nUser: Show customers\nSQL: SELECT * FROM customers"
+        result = mock.generate("From the previous, filter California only", "", history)
+        assert result["success"]
+        assert "California" in result["generated_sql"]
+
+    def test_default_fallback(self):
+        mock = SQLGeneratorMock()
+        result = mock.generate("xyzzy nonsense query", "")
+        assert result["success"]
+        assert "customers" in result["generated_sql"].lower()
 
 
 if __name__ == "__main__":

@@ -1,13 +1,18 @@
 """Gradio web interface for SQL Query Buddy"""
 import gradio as gr
 import os
-from typing import Optional, Tuple
 from src.config import settings
 from src.components.executor import DatabaseConnection, QueryExecutor, SQLiteDatabase
 from src.components.nlp_processor import ContextManager
-from src.components.rag_system import RAGSystem, InMemoryVectorDB
+from src.components.rag_system import (
+    RAGSystem,
+    InMemoryVectorDB,
+    FAISSVectorDB,
+    SimpleEmbeddingProvider,
+    FAISS_AVAILABLE,
+)
 from src.components.sql_generator import SQLGenerator, SQLGeneratorMock
-from src.components.insights import InsightGenerator
+from src.components.insights import InsightGenerator, LocalInsightGenerator
 from src.components.optimizer import QueryOptimizer
 
 
@@ -18,7 +23,11 @@ class QueryBuddyApp:
         # Initialize database
         self.db_url = settings.database_url
         self.db_connection = DatabaseConnection(self.db_url)
-        self.query_executor = QueryExecutor(self.db_connection)
+        self.query_executor = QueryExecutor(
+            self.db_connection,
+            timeout_seconds=settings.query_timeout_seconds,
+            max_rows=settings.max_rows_return,
+        )
 
         # Initialize NLP and context management
         self.context_manager = ContextManager()
@@ -31,17 +40,32 @@ class QueryBuddyApp:
         else:
             self.sql_generator = SQLGeneratorMock()
 
-        # Initialize RAG system
+        # Initialize RAG system with schema embeddings
         schema = self.db_connection.get_schema()
         self.context_manager.initialize_with_schema(schema)
 
-        # Initialize insights generator (mock if no API key)
+        embedding_provider = SimpleEmbeddingProvider()
+        # Build vocabulary from schema descriptions
+        schema_texts = []
+        for table_name, table_info in schema.items():
+            schema_texts.append(f"Table {table_name}")
+            for col_name, col_info in table_info.get("columns", {}).items():
+                schema_texts.append(
+                    f"Column {col_name} in {table_name} {col_info.get('type', '')}"
+                )
+        embedding_provider.build_vocabulary(schema_texts)
+
+        vector_db = FAISSVectorDB() if FAISS_AVAILABLE else InMemoryVectorDB()
+        self.rag_system = RAGSystem(embedding_provider, vector_db)
+        self.rag_system.initialize_schema(schema)
+
+        # Initialize insights generator (local fallback if no API key)
         if settings.openai_api_key and settings.openai_api_key != "":
             self.insight_generator = InsightGenerator(
                 openai_api_key=settings.openai_api_key, model=settings.openai_model
             )
         else:
-            self.insight_generator = None
+            self.insight_generator = LocalInsightGenerator()
 
         # Initialize optimizer
         self.optimizer = QueryOptimizer()
@@ -51,12 +75,28 @@ class QueryBuddyApp:
     ) -> Tuple[str, list]:
         """Process user query and return response"""
         try:
-            # Parse user input
+            # Parse user input with NLP
             parsed = self.context_manager.process_input(user_message)
+            parsed_query = parsed["parsed_query"]
+            intent = parsed_query["intent"]
+            entities = parsed_query["entities"]
 
-            # Get schema context
+            # Get schema context via RAG (semantic retrieval of relevant tables/columns)
             schema = self.db_connection.get_schema()
-            schema_str = self._format_schema(schema)
+            rag_context = self.rag_system.get_schema_context_string(
+                user_message,
+                similarity_threshold=settings.similarity_threshold,
+            )
+            full_schema_str = self._format_schema(schema)
+
+            # Include NLP-extracted info for the SQL generator
+            entities_str = ", ".join(entities) if entities else "none"
+            schema_str = (
+                f"{rag_context}\n\n"
+                f"Detected intent: {intent}\n"
+                f"Referenced entities: {entities_str}\n\n"
+                f"Full Schema:\n{full_schema_str}"
+            )
 
             # Generate SQL
             result = self.sql_generator.generate(
@@ -122,8 +162,8 @@ class QueryBuddyApp:
                         f"- {suggestion.get('suggestion', '')} *(severity: {suggestion.get('severity', 'low')})*"
                     )
 
-            # Add insights if available
-            if self.insight_generator and data:
+            # Add AI-driven insights (uses LLM if available, local analysis otherwise)
+            if data:
                 insights = self.insight_generator.generate_insights(data, user_message)
                 response_lines.append(f"\n**AI Insights:** {insights}")
 
@@ -145,7 +185,7 @@ class QueryBuddyApp:
 
     @staticmethod
     def _format_schema(schema: dict) -> str:
-        """Format schema for LLM context"""
+        """Format schema for LLM context including relationships"""
         lines = ["Database Schema:"]
 
         for table_name, table_info in schema.items():
@@ -154,6 +194,14 @@ class QueryBuddyApp:
             for col_name, col_info in columns.items():
                 col_type = col_info.get("type", "unknown")
                 lines.append(f"  - {col_name} ({col_type})")
+
+            # Include foreign key relationships
+            for fk in table_info.get("foreign_keys", []):
+                cols = ", ".join(fk["column"])
+                ref_cols = ", ".join(fk["references_column"])
+                lines.append(
+                    f"  FK: {cols} -> {fk['references_table']}({ref_cols})"
+                )
 
         return "\n".join(lines)
 
@@ -187,21 +235,30 @@ class QueryBuddyApp:
             with gr.Row():
                 msg = gr.Textbox(
                     label="Your question",
-                    placeholder="e.g., 'Show me the top 10 customers by spending'",
+                    placeholder="e.g., 'Show me the top 5 customers by total purchase amount'",
                     lines=2,
                 )
                 clear = gr.Button("Clear Chat")
 
             # Set up event handlers
             msg.submit(self.process_query, [msg, chatbot], [msg, chatbot])
-            clear.click(lambda: ([], []), outputs=[chatbot, msg])
+
+            def clear_chat():
+                self.context_manager.reset()
+                return [], ""
+
+            clear.click(clear_chat, outputs=[chatbot, msg])
 
             gr.Examples(
                 [
-                    ["Show me all users"],
-                    ["How many products are in stock?"],
-                    ["What are the top 5 products by price?"],
-                    ["Show me orders from the last month"],
+                    ["Show me the top 5 customers by total purchase amount"],
+                    ["Which product category made the most revenue?"],
+                    ["Show total sales per region"],
+                    ["Find the average order value for returning customers"],
+                    ["How many unique products were sold in January?"],
+                    ["Show the trend of monthly revenue over time"],
+                    ["From the previous result, filter customers from New York only"],
+                    ["How many orders contained more than 3 items?"],
                 ],
                 msg,
             )
@@ -227,7 +284,7 @@ def main():
     demo = app.create_interface()
 
     demo.launch(
-        server_name=settings.fastapi_host,
+        server_name=settings.server_host,
         server_port=settings.gradio_server_port,
         share=settings.gradio_share,
     )

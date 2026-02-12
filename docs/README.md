@@ -89,58 +89,34 @@ python app.py
 
 ## 🏗️ Architecture
 
+See [ARCHITECTURE.md](ARCHITECTURE.md) for detailed Mermaid diagrams including:
+- System Architecture Diagram
+- Data Flow Sequence Diagram
+- Entity Relationship Diagram
+- RAG Pipeline Detail
+- Component Dependency Map
+- Deployment Architecture
+
+**High-Level Flow:**
 ```
-User Query
-    ↓
-[Chat Interface - Gradio/React]
-    ↓
-[Natural Language Processing Layer]
-    ├─ Query Parser
-    ├─ Context Manager
-    └─ Conversation History
-    ↓
-[RAG System]
-    ├─ Vector Database (FAISS/Chroma)
-    ├─ Schema Embeddings
-    └─ Semantic Retrieval
-    ↓
-[SQL Generation Engine - LangChain Agent]
-    ├─ Prompt Engineering
-    ├─ Multi-table Reasoning
-    └─ Query Validation
-    ↓
-[Query Optimization Module]
-    ├─ Performance Analysis
-    ├─ Index Suggestions
-    └─ Query Rewriting
-    ↓
-[Query Execution Layer]
-    ├─ Connection Management
-    ├─ Safety Checks
-    └─ Result Formatting
-    ↓
-[Insight Generation Engine]
-    ├─ Pattern Detection
-    ├─ Trend Analysis
-    └─ Natural Language Insights
-    ↓
-Response to User
+User Question → NLP Parser → RAG Schema Search → SQL Generation (LangChain + GPT-4)
+    → Validation → Optimization → Execution → Insight Generation → Formatted Response
 ```
 
 ## 📚 Example Queries
 
 SQL Query Buddy handles a wide variety of natural language questions:
 
-1. **"Show me the top 10 customers by total spending this year"**
-2. **"What products have declining sales trends in the last quarter?"**
-3. **"Calculate average order value by product category"**
-4. **"Find all customers who purchased more than $1000 in the last 30 days"**
-5. **"Which product categories are most popular by region?"**
-6. **"Show me the customer retention rate for each month"**
-7. **"What are the peak ordering times by day of week?"**
-8. **"Find products with inventory below safety threshold"**
-9. **"Compare revenue growth year-over-year for each product line"**
-10. **"Which customer segments have the highest lifetime value?"**
+1. **"Show me the top 5 customers by total purchase amount."**
+2. **"Which product category made the most revenue this quarter?"**
+3. **"List customers who haven't ordered anything in the last 3 months."**
+4. **"Show total sales per region for 2024."**
+5. **"Find the average order value for returning customers."**
+6. **"How many unique products were sold in January?"**
+7. **"Which salesperson generated the highest sales last month?"**
+8. **"From the previous result, filter customers from New York only."**
+9. **"Show the trend of monthly revenue over time."**
+10. **"How many orders contained more than 3 items?"**
 
 ## 📁 Project Structure
 
@@ -231,23 +207,21 @@ pytest tests/integration/
 
 ## 🗺️ Roadmap
 
-### Phase 1: MVP Delivery (Weekend Sprint)
-- ✅ Basic SQL generation from natural language
-- ✅ Database connection & execution
-- ✅ Simple Gradio chat interface
-- ✅ Context retention across turns
-- ✅ RAG system with schema embeddings
-- 🔄 Query optimization suggestions
-- 🔄 AI-driven insights generation
-- 🔄 Advanced multi-table reasoning
-- 🔄 Query explanation feature
-- 🔄 Enhanced UI/UX improvements
-- 🔄 Comprehensive testing suite
-- 🔄 Docker containerization
-- 🔄 Production deployment setup
-- 🔄 Documentation and API docs
+### MVP - COMPLETE
+- ✅ Natural language to SQL generation (LangChain + GPT-4)
+- ✅ RAG-powered schema-aware query generation (FAISS/Chroma)
+- ✅ Conversational querying with context retention
+- ✅ Query optimization suggestions
+- ✅ AI-driven insights generation
+- ✅ Explainable SQL with reasoning
+- ✅ Retail commerce schema (customers, products, orders, order_items)
+- ✅ Gradio chat interface
+- ✅ SQL injection prevention & security
+- ✅ Comprehensive testing (unit + integration)
+- ✅ Docker containerization
+- ✅ Full documentation & architecture diagrams
 
-**Timeline**: Delivery by February 15, 2026 contest deadline
+**Submitted**: February 15, 2026 contest deadline
 
 ## 📄 License
 

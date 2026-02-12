@@ -33,15 +33,26 @@ python -m src.main
 - 💾 **Context Retention** - Maintains conversation history
 - 🎨 **Clean Interface** - Intuitive Gradio web interface
 
+## Database Schema (Retail Commerce)
+
+| Table | Description |
+|-------|-------------|
+| **customers** | Customer info (name, email, region, signup_date) |
+| **products** | Product catalog (name, category, price) |
+| **orders** | Purchase records (customer_id, order_date, total_amount) |
+| **order_items** | Line items linking orders to products (quantity, subtotal) |
+
 ## Demo Queries
 
 Try these in the chat:
-- "Show me all users"
-- "How many products are in stock?"
-- "What are the top 5 products by price?"
-- "Show me orders from the last month"
+- "Show me the top 5 customers by total purchase amount"
+- "Which product category made the most revenue this quarter?"
+- "List customers who haven't ordered anything in the last 3 months"
+- "Show total sales per region for 2024"
+- "Find the average order value for returning customers"
+- "From the previous result, filter customers from New York only"
 
-See more examples in [demo_queries.md](demo_queries.md)
+See all 10+ examples in [demo_queries.md](demo_queries.md)
 
 ## Tech Stack
 
@@ -119,8 +130,11 @@ See `.env.example` for all available options. Key ones:
 ## Documentation
 
 - Full documentation: [docs/README.md](docs/README.md)
+- Architecture diagrams: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
 - Technical specs: [docs/specification.md](docs/specification.md)
 - Demo queries: [demo_queries.md](demo_queries.md)
+- Security audit: [docs/SECURITY.md](docs/SECURITY.md)
+- Testing guide: [docs/TESTING.md](docs/TESTING.md)
 
 ## License
 
