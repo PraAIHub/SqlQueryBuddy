@@ -2,10 +2,19 @@
 from typing import Dict, List, Any, Optional
 
 try:
-    from langchain.chat_models import ChatOpenAI
+    from langchain_core.messages import HumanMessage, SystemMessage
 except ImportError:
     try:
-        from langchain_openai import ChatOpenAI
+        from langchain.schema import HumanMessage, SystemMessage
+    except ImportError:
+        HumanMessage = None
+        SystemMessage = None
+
+try:
+    from langchain_openai import ChatOpenAI
+except ImportError:
+    try:
+        from langchain.chat_models import ChatOpenAI
     except ImportError:
         ChatOpenAI = None
 
@@ -44,7 +53,16 @@ Results Data (first 10 rows):
 Provide 2-3 key insights or patterns from this data. Be specific and actionable."""
 
         try:
-            response = self.llm.invoke(prompt)
+            messages = []
+            if SystemMessage:
+                messages.append(SystemMessage(
+                    content="You are a data analyst. Analyze query results and provide actionable business insights."
+                ))
+                messages.append(HumanMessage(content=prompt))
+            else:
+                messages = [prompt]
+
+            response = self.llm.invoke(messages)
             return response.content.strip()
         except Exception:
             return "Unable to generate insights from the results."
@@ -169,3 +187,188 @@ class ResultsAnalyzer:
             "string_patterns": self.pattern_detector.detect_string_patterns(results),
             "trends": self.trend_analyzer.analyze_trends(results),
         }
+
+
+class LocalInsightGenerator:
+    """Generates business-meaningful insights locally without an API key.
+
+    Goes beyond raw statistics to produce interpretive, decision-supportive
+    narratives about the data — identifying top performers, percentage
+    contributions, concentration risks, and actionable patterns.
+    """
+
+    def __init__(self):
+        self.analyzer = ResultsAnalyzer()
+
+    def generate_insights(
+        self, query_results: List[Dict[str, Any]], user_query: str
+    ) -> str:
+        """Generate business insights from query results using local analysis."""
+        if not query_results:
+            return "No data available to generate insights."
+
+        insights = []
+        count = len(query_results)
+
+        # Identify the "name" column and the primary numeric metric
+        name_col = self._find_name_column(query_results)
+        numeric_cols = self._get_numeric_columns(query_results)
+
+        # Top performer analysis (most impactful insight)
+        if name_col and numeric_cols:
+            primary_metric = numeric_cols[0]
+            insights.extend(
+                self._top_performer_insights(query_results, name_col, primary_metric, count)
+            )
+
+        # Distribution / concentration analysis (skip primary metric already covered above)
+        secondary_metrics = numeric_cols[1:] if numeric_cols else []
+        for col in secondary_metrics:
+            values = [row[col] for row in query_results if isinstance(row.get(col), (int, float))]
+            if len(values) >= 2:
+                total = sum(values)
+                if total > 0:
+                    top_val = max(values)
+                    top_pct = (top_val / total) * 100
+                    if top_pct > 40:
+                        top_row = max(query_results, key=lambda r: r.get(col, 0))
+                        label = top_row.get(name_col, "The top entry") if name_col else "The top entry"
+                        insights.append(
+                            f"{label} also dominates {col.replace('_', ' ')} "
+                            f"with {top_pct:.0f}% of the total."
+                        )
+
+        # Comparison insights (gap between top and bottom)
+        if name_col and numeric_cols:
+            col = numeric_cols[0]
+            values = [row.get(col, 0) for row in query_results if isinstance(row.get(col), (int, float))]
+            if len(values) >= 2:
+                sorted_rows = sorted(query_results, key=lambda r: r.get(col, 0), reverse=True)
+                top_row = sorted_rows[0]
+                bottom_row = sorted_rows[-1]
+                top_val = top_row.get(col, 0)
+                bottom_val = bottom_row.get(col, 0)
+                if bottom_val > 0:
+                    ratio = top_val / bottom_val
+                    if ratio >= 2:
+                        insights.append(
+                            f"{top_row.get(name_col, 'Top')} outperforms "
+                            f"{bottom_row.get(name_col, 'bottom')} by {ratio:.1f}x "
+                            f"in {col.replace('_', ' ')}."
+                        )
+
+        # Categorical distribution
+        string_patterns = PatternDetector.detect_string_patterns(query_results)
+        for col, info in string_patterns.items():
+            if col == name_col:
+                continue  # Skip the name column itself
+            unique = info.get("unique_count", 0)
+            total_count = info.get("count", 0)
+            if 1 < unique <= 5 and total_count > unique:
+                # Show distribution across categories
+                category_counts: Dict[str, int] = {}
+                for row in query_results:
+                    val = row.get(col, "")
+                    if isinstance(val, str):
+                        category_counts[val] = category_counts.get(val, 0) + 1
+                if category_counts:
+                    dominant = max(category_counts, key=category_counts.get)
+                    dom_pct = (category_counts[dominant] / total_count) * 100
+                    insights.append(
+                        f"'{dominant}' is the most common {col.replace('_', ' ')} "
+                        f"({dom_pct:.0f}% of records)."
+                    )
+
+        # Trend detection (only for time-ordered data)
+        trends = TrendAnalyzer.analyze_trends(query_results)
+        # Only report trends if data appears time-ordered (has date/month/year column)
+        has_time_col = any(
+            "date" in k.lower() or "month" in k.lower() or "year" in k.lower()
+            for k in query_results[0].keys()
+        )
+        if has_time_col and trends:
+            for col, trend in trends.items():
+                direction = trend["direction"]
+                total_change = trend["total_change"]
+                first_val = next(
+                    (row.get(col) for row in query_results if isinstance(row.get(col), (int, float))), None
+                )
+                if first_val and first_val != 0:
+                    pct_change = (total_change / abs(first_val)) * 100
+                    insights.append(
+                        f"{col.replace('_', ' ').title()} is {direction} "
+                        f"({pct_change:+.1f}% overall change)."
+                    )
+
+        if not insights:
+            insights.append(
+                f"Query returned {count} record{'s' if count != 1 else ''} "
+                f"with {len(numeric_cols)} numeric and "
+                f"{len(string_patterns)} categorical column{'s' if len(string_patterns) != 1 else ''}."
+            )
+
+        return " ".join(insights)
+
+    @staticmethod
+    def _find_name_column(data: List[Dict[str, Any]]) -> Optional[str]:
+        """Find the most likely 'label' column (name, category, region, etc.)."""
+        if not data:
+            return None
+        label_hints = ["name", "customer", "product", "category", "region", "label", "title"]
+        for key in data[0].keys():
+            key_lower = key.lower()
+            if any(hint in key_lower for hint in label_hints):
+                if isinstance(data[0].get(key), str):
+                    return key
+        # Fall back to first string column
+        for key, value in data[0].items():
+            if isinstance(value, str):
+                return key
+        return None
+
+    @staticmethod
+    def _get_numeric_columns(data: List[Dict[str, Any]]) -> List[str]:
+        """Get numeric column names, excluding ID-like columns."""
+        if not data:
+            return []
+        return [
+            k for k, v in data[0].items()
+            if isinstance(v, (int, float)) and "id" not in k.lower()
+        ]
+
+    @staticmethod
+    def _top_performer_insights(
+        data: List[Dict[str, Any]], name_col: str, metric_col: str, total_count: int
+    ) -> List[str]:
+        """Generate insights about top performers."""
+        insights = []
+        values = [row.get(metric_col, 0) for row in data if isinstance(row.get(metric_col), (int, float))]
+        if not values:
+            return insights
+
+        total = sum(values)
+        if total <= 0:
+            return insights
+
+        sorted_rows = sorted(data, key=lambda r: r.get(metric_col, 0), reverse=True)
+        top = sorted_rows[0]
+        top_name = top.get(name_col, "Top entry")
+        top_val = top.get(metric_col, 0)
+        top_pct = (top_val / total) * 100
+
+        insights.append(
+            f"{top_name} leads with {top_val:,.2f} {metric_col.replace('_', ' ')} "
+            f"({top_pct:.0f}% of total)."
+        )
+
+        # Top 2 combined if there are enough rows
+        if total_count >= 3:
+            top2_val = top_val + sorted_rows[1].get(metric_col, 0)
+            top2_pct = (top2_val / total) * 100
+            if top2_pct > 50:
+                insights.append(
+                    f"The top 2 ({top_name} and {sorted_rows[1].get(name_col, '2nd')}) "
+                    f"account for {top2_pct:.0f}% of all {metric_col.replace('_', ' ')}."
+                )
+
+        return insights

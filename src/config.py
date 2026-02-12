@@ -23,11 +23,11 @@ class Settings(BaseSettings):
     database_url: str = Field(default="sqlite:///retail.db", alias="DATABASE_URL")
 
     # Vector Database Configuration
-    vector_db_type: Literal["faiss", "chroma"] = Field(default="faiss", alias="VECTOR_DB_TYPE")
+    vector_db_type: Literal["faiss", "in_memory"] = Field(default="faiss", alias="VECTOR_DB_TYPE")
 
     # Embeddings Configuration
     embeddings_model: str = Field(
-        default="sentence-transformers/all-MiniLM-L6-v2", alias="EMBEDDINGS_MODEL"
+        default="tfidf-local", alias="EMBEDDINGS_MODEL"
     )
 
     # Application Configuration
@@ -40,9 +40,9 @@ class Settings(BaseSettings):
     top_k_similar: int = Field(default=5, alias="TOP_K_SIMILAR")
     similarity_threshold: float = Field(default=0.5, alias="SIMILARITY_THRESHOLD")
 
-    # FastAPI Configuration
-    fastapi_host: str = Field(default="0.0.0.0", alias="FASTAPI_HOST")
-    fastapi_port: int = Field(default=8000, alias="FASTAPI_PORT")
+    # Server Configuration
+    server_host: str = Field(default="0.0.0.0", alias="SERVER_HOST")
+    server_port: int = Field(default=8000, alias="SERVER_PORT")
 
     # Gradio Configuration
     gradio_share: bool = Field(default=False, alias="GRADIO_SHARE")

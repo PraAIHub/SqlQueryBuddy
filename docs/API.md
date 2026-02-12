@@ -15,10 +15,10 @@ Handles natural language understanding and conversation context management.
 from src.components.nlp_processor import QueryParser
 
 parser = QueryParser()
-result = parser.parse("Show me top 10 users")
+result = parser.parse("Show me top 10 customers")
 # Returns:
 # {
-#     "original_text": "Show me top 10 users",
+#     "original_text": "Show me top 10 customers",
 #     "intent": "retrieve",  # retrieve, aggregate, ranking, comparison, trend, general
 #     "entities": [],
 #     "modifiers": {"limit": 10, "order_by": None, "filter": []}
@@ -89,7 +89,7 @@ result = generator.generate(
 # }
 
 # Validate a query
-is_valid, error = generator.validate_query("SELECT * FROM users")
+is_valid, error = generator.validate_query("SELECT * FROM customers")
 ```
 
 ---
@@ -106,8 +106,8 @@ from src.components.executor import DatabaseConnection
 
 db = DatabaseConnection("postgresql://user:pass@localhost/dbname")
 schema = db.get_schema()
-result = db.execute_query("SELECT * FROM users LIMIT 10")
-sample_data = db.get_sample_data("users", limit=5)
+result = db.execute_query("SELECT * FROM customers LIMIT 10")
+sample_data = db.get_sample_data("customers", limit=5)
 ```
 
 **QueryExecutor**
@@ -115,15 +115,15 @@ sample_data = db.get_sample_data("users", limit=5)
 from src.components.executor import QueryExecutor
 
 executor = QueryExecutor(db_connection)
-result = executor.execute("SELECT * FROM users")
+result = executor.execute("SELECT * FROM customers")
 # Returns:
 # {
 #     "success": True,
-#     "query": "SELECT * FROM users",
-#     "row_count": 100,
-#     "columns": ["id", "name", "email"],
-#     "data": [{"id": 1, "name": "Alice", "email": "alice@example.com"}, ...],
-#     "summary": "100 results found."
+#     "query": "SELECT * FROM customers",
+#     "row_count": 5,
+#     "columns": ["customer_id", "name", "email", "region", "signup_date"],
+#     "data": [{"customer_id": 1, "name": "Alice Chen", "email": "alice.chen@example.com", ...}, ...],
+#     "summary": "5 results found."
 # }
 ```
 

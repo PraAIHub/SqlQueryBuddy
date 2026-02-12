@@ -262,8 +262,8 @@ mysql+pymysql://app_user:secure_password@db-host:3306/sql_query_buddy
 2. **Database optimization**:
 ```sql
 -- Create indexes on commonly filtered columns
-CREATE INDEX idx_users_email ON users(email);
-CREATE INDEX idx_orders_user_id ON orders(user_id);
+CREATE INDEX idx_customers_email ON customers(email);
+CREATE INDEX idx_orders_customer_id ON orders(customer_id);
 ```
 
 3. **Use connection pooling**:

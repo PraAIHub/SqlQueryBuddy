@@ -90,11 +90,29 @@ class QueryParser:
         else:
             return "general"
 
+    # Known schema entities for keyword matching
+    KNOWN_TABLES = ["customers", "products", "orders", "order_items"]
+    KNOWN_COLUMNS = [
+        "customer_id", "name", "email", "region", "signup_date",
+        "product_id", "category", "price",
+        "order_id", "order_date", "total_amount",
+        "item_id", "quantity", "subtotal",
+    ]
+
     @staticmethod
     def _extract_entities(text: str) -> List[str]:
-        """Extract potential table/column names from query"""
-        # Simplified entity extraction - would be enhanced with NLP models
-        return []
+        """Extract potential table/column names referenced in the query."""
+        text_lower = text.lower()
+        entities = []
+        for table in QueryParser.KNOWN_TABLES:
+            # Match singular or plural form
+            singular = table.rstrip("s")
+            if table in text_lower or singular in text_lower:
+                entities.append(table)
+        for col in QueryParser.KNOWN_COLUMNS:
+            if col.replace("_", " ") in text_lower or col in text_lower:
+                entities.append(col)
+        return entities
 
     @staticmethod
     def _extract_modifiers(text: str) -> dict:
