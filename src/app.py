@@ -1,6 +1,7 @@
 """Gradio web interface for SQL Query Buddy"""
 import gradio as gr
 import os
+from typing import Tuple
 from src.config import settings
 from src.components.executor import DatabaseConnection, QueryExecutor, SQLiteDatabase
 from src.components.nlp_processor import ContextManager

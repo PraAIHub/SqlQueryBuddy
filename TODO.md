@@ -14,6 +14,7 @@
 - [x] Clean requirements.txt (remove dead deps, use >= constraints)
 - [x] All reviews addressed (3 rounds, 9 agent reviews)
 - [x] 51 tests passing
+- [x] Fix missing `Tuple` import in app.py (review finding)
 
 ## Pending - Tomorrow (Feb 12)
 - [ ] Configure and test with OpenAI API key
