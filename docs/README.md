@@ -19,18 +19,18 @@ Ask questions like *"Show me the top 10 products by revenue last quarter"* and l
 - **📊 AI-Driven Insights** - Beyond raw results: trend detection, pattern analysis, and natural language summary insights
 - **🔍 Explainable SQL** - Transparent SQL generation with step-by-step explanations of the reasoning
 - **💾 Context Retention** - Maintains conversation history and query context for sophisticated multi-turn interactions
-- **🎨 Clean Chat Interface** - Intuitive Gradio/React web interface for seamless user experience
+- **🎨 Clean Chat Interface** - Intuitive Gradio web interface for seamless user experience
 
 ## 🎬 Demo
 
-*Screenshots and GIFs coming soon!*
+**Live Demo:** [https://huggingface.co/spaces/rsprasanna/SqlQueryBuddy](https://huggingface.co/spaces/rsprasanna/SqlQueryBuddy)
 
 ## 🚀 Quick Start
 
 ### Prerequisites
 - Python 3.9 or higher
 - pip package manager
-- Your database credentials (SQLite, PostgreSQL, or MySQL)
+- SQLite database (default; PostgreSQL/MySQL experimental with LLM mode)
 
 ### Installation
 
@@ -54,38 +54,33 @@ cp .env.example .env
 ### Basic Usage
 
 ```python
-from sql_query_buddy import QueryBuddy
+from src.app import QueryBuddyApp
 
-# Initialize the query buddy
-buddy = QueryBuddy(
-    database_url="sqlite:///retail.db",
-    llm_model="gpt-4",
-    openai_api_key="your-api-key"
-)
-
-# Ask a question
-response = buddy.query("What are the top 5 products by sales?")
-print(response)
+# Initialize and launch
+app = QueryBuddyApp()
+demo = app.create_interface()
+demo.launch()
+# Visit http://localhost:7860 in your browser
 ```
 
 ### Running the Web Interface
 
 ```bash
-python app.py
-# Visit http://localhost:7860 in your browser
+python -m src.app
+# Or use the startup script: ./run.sh
 ```
 
 ## 🛠️ Tech Stack
 
 | Layer | Technology | Purpose |
 |-------|-----------|---------|
-| **Frontend** | Gradio / React | Interactive chat interface |
+| **Frontend** | Gradio | Interactive chat interface |
 | **AI Engine** | LangChain + GPT-4 | Query generation & insights |
-| **Vector Search** | FAISS / Chroma | Schema embeddings & retrieval |
-| **Backend** | Python FastAPI | REST API & agent orchestration |
-| **Database** | SQLite / PostgreSQL / MySQL | Data storage & querying |
+| **Vector Search** | FAISS | Schema embeddings & retrieval |
+| **Backend** | Python + Gradio | Web server & orchestration |
+| **Database** | SQLite (default) | Data storage & querying |
 | **RAG Framework** | Custom RAG Pipeline | Context-aware retrieval |
-| **Embeddings** | OpenAI Embeddings | Semantic search |
+| **Embeddings** | TF-IDF (local) | Semantic search (no API needed) |
 
 ## 🏗️ Architecture
 
@@ -113,7 +108,7 @@ SQL Query Buddy handles a wide variety of natural language questions:
 4. **"Show total sales per region for 2024."**
 5. **"Find the average order value for returning customers."**
 6. **"How many unique products were sold in January?"**
-7. **"Which salesperson generated the highest sales last month?"**
+7. **"Which customer had the highest spending last month?"**
 8. **"From the previous result, filter customers from New York only."**
 9. **"Show the trend of monthly revenue over time."**
 10. **"How many orders contained more than 3 items?"**
@@ -124,6 +119,7 @@ SQL Query Buddy handles a wide variety of natural language questions:
 SQLQueryBuddy/
 ├── docs/
 │   ├── README.md                    # This file
+│   ├── ARCHITECTURE.md              # Architecture diagrams
 │   └── specification.md             # Technical specification
 ├── src/
 │   ├── __init__.py
@@ -131,20 +127,18 @@ SQLQueryBuddy/
 │   ├── app.py                       # Gradio web interface
 │   ├── config.py                    # Configuration management
 │   └── components/
-│       ├── chat_interface.py        # UI components
-│       ├── nlp_processor.py         # NLP layer
-│       ├── rag_system.py            # RAG pipeline
-│       ├── sql_generator.py         # LangChain agent
-│       ├── optimizer.py             # Query optimization
-│       ├── executor.py              # Query execution
-│       └── insights.py              # Insight generation
-├── data/
-│   └── schema/                      # Database schema definitions
+│       ├── nlp_processor.py         # NLP layer (query parsing, context)
+│       ├── rag_system.py            # RAG pipeline (FAISS, TF-IDF)
+│       ├── sql_generator.py         # LangChain SQL generation + mock
+│       ├── optimizer.py             # Query optimization suggestions
+│       ├── executor.py              # Database connection & execution
+│       └── insights.py              # AI insight generation
 ├── tests/
-│   ├── unit/
-│   ├── integration/
-│   └── fixtures/
+│   ├── unit/                        # Unit tests (41 tests)
+│   └── integration/                 # End-to-end tests (12 tests)
 ├── requirements.txt                 # Python dependencies
+├── Dockerfile                       # Docker deployment
+├── docker-compose.yml
 ├── .env.example                     # Environment variables template
 ├── .gitignore
 ├── LICENSE
@@ -231,4 +225,4 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 **Made with ❤️ for the Codecademy GenAI Bootcamp Contest**
 
-Last Updated: February 10, 2026
+Last Updated: February 13, 2026

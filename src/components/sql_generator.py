@@ -115,9 +115,21 @@ class SQLValidator:
     ]
 
     @staticmethod
+    def _strip_comments(sql: str) -> str:
+        """Strip SQL comments (-- line and /* */ block) before validation."""
+        # Remove block comments /* ... */
+        sql = re.sub(r"/\*.*?\*/", " ", sql, flags=re.DOTALL)
+        # Remove line comments -- ...
+        sql = re.sub(r"--[^\n]*", " ", sql)
+        # Normalize whitespace
+        return re.sub(r"\s+", " ", sql).strip()
+
+    @staticmethod
     def validate(sql_query: str) -> tuple[bool, Optional[str]]:
         """Validate SQL query for safety and syntax"""
-        sql_upper = sql_query.upper().strip()
+        # Strip comments first to prevent bypass
+        cleaned = SQLValidator._strip_comments(sql_query)
+        sql_upper = cleaned.upper().strip()
 
         # Check for dangerous keywords using word boundaries
         for keyword in SQLValidator.DANGEROUS_KEYWORDS:
@@ -129,7 +141,7 @@ class SQLValidator:
             return False, "Query must be a SELECT statement"
 
         # Check for multiple statements (reject any semicolon not at the very end)
-        stripped = sql_query.strip().rstrip(";")
+        stripped = cleaned.rstrip(";")
         if ";" in stripped:
             return False, "Multiple statements detected"
 
@@ -594,7 +606,7 @@ class SQLGeneratorMock:
         (["this quarter"], "o.order_date >= date('now', '-3 months')"),
         (["this month"], "o.order_date >= date('now', '-1 month')"),
         (["this year"], "strftime('%Y', o.order_date) = strftime('%Y', 'now')"),
-        (["last year"], "strftime('%Y', o.order_date) = CAST(strftime('%Y', 'now') - 1 AS TEXT)"),
+        (["last year"], "strftime('%Y', o.order_date) = strftime('%Y', 'now', '-1 year')"),
         (["last 3 months", "past 3 months"], "o.order_date >= date('now', '-3 months')"),
         (["last 6 months", "past 6 months"], "o.order_date >= date('now', '-6 months')"),
     ]

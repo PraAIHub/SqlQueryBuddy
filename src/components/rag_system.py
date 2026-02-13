@@ -36,26 +36,74 @@ class SimpleEmbeddingProvider(EmbeddingProvider):
     """Bag-of-words embedding provider that works without external APIs.
 
     Uses TF-IDF-like weighting over a fixed vocabulary built from schema text.
-    Sufficient for semantic retrieval over small schema vocabularies.
+    Includes simple stemming and synonym expansion so user queries like
+    "customer" match schema tokens like "customers".
     """
+
+    # Synonyms: map common user words to schema-relevant tokens
+    SYNONYMS: Dict[str, List[str]] = {
+        "customer": ["customers"],
+        "customers": ["customer"],
+        "product": ["products"],
+        "products": ["product"],
+        "order": ["orders"],
+        "orders": ["order"],
+        "item": ["items", "order_items"],
+        "items": ["item", "order_items"],
+        "revenue": ["total_amount", "subtotal", "price", "sales"],
+        "sales": ["total_amount", "revenue", "subtotal"],
+        "spending": ["total_amount", "spent"],
+        "spent": ["total_amount", "spending"],
+        "income": ["revenue", "total_amount"],
+        "buyer": ["customer", "customers"],
+        "purchase": ["order", "orders", "total_amount"],
+        "cost": ["price", "subtotal"],
+        "date": ["order_date", "signup_date"],
+        "month": ["order_date"],
+        "trend": ["order_date", "monthly"],
+        "category": ["category"],
+        "region": ["region"],
+        "name": ["name"],
+        "email": ["email"],
+    }
 
     def __init__(self):
         self.vocabulary: List[str] = []
         self.idf: Dict[str, float] = {}
         self._documents: List[str] = []
 
+    @staticmethod
+    def _stem(word: str) -> str:
+        """Very simple suffix-stripping stemmer for English plurals."""
+        if word.endswith("ies") and len(word) > 4:
+            return word[:-3] + "y"
+        if word.endswith("es") and len(word) > 3:
+            return word[:-2]
+        if word.endswith("s") and not word.endswith("ss") and len(word) > 3:
+            return word[:-1]
+        return word
+
     def build_vocabulary(self, texts: List[str]) -> None:
-        """Build vocabulary and IDF weights from a corpus of schema descriptions."""
+        """Build vocabulary and IDF weights from schema descriptions + synonyms."""
         self._documents = texts
-        word_set = set()
+        word_set: set = set()
         doc_freq: Dict[str, int] = Counter()
 
         for text in texts:
             words = self._tokenize(text)
             unique_words = set(words)
+            # Also add stems so singular/plural both appear
+            for w in list(unique_words):
+                unique_words.add(self._stem(w))
             word_set.update(unique_words)
             for w in unique_words:
                 doc_freq[w] += 1
+
+        # Add synonym keys to vocabulary so user queries have non-zero vectors
+        for syn_key in self.SYNONYMS:
+            word_set.add(syn_key)
+            if syn_key not in doc_freq:
+                doc_freq[syn_key] = 1
 
         self.vocabulary = sorted(word_set)
         num_docs = len(texts) + 1  # smoothing
@@ -69,11 +117,26 @@ class SimpleEmbeddingProvider(EmbeddingProvider):
         """Simple tokenizer: lowercase, split on non-alpha, remove short tokens."""
         return [w for w in re.findall(r"[a-z][a-z0-9_]*", text.lower()) if len(w) > 1]
 
+    def _expand_tokens(self, tokens: List[str]) -> List[str]:
+        """Expand tokens with stems and synonyms for better matching."""
+        expanded = list(tokens)
+        for t in tokens:
+            # Add stem
+            stemmed = self._stem(t)
+            if stemmed != t:
+                expanded.append(stemmed)
+            # Add synonyms
+            for syn in self.SYNONYMS.get(t, []):
+                expanded.append(syn)
+            for syn in self.SYNONYMS.get(stemmed, []):
+                expanded.append(syn)
+        return expanded
+
     def embed(self, text: str) -> List[float]:
         """Embed text into a TF-IDF weighted bag-of-words vector."""
         if not self.vocabulary:
             return []
-        tokens = self._tokenize(text)
+        tokens = self._expand_tokens(self._tokenize(text))
         tf = Counter(tokens)
         total = len(tokens) if tokens else 1
         vector = []

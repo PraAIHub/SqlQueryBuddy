@@ -83,6 +83,22 @@ class TestSQLValidator:
         is_valid, error = SQLValidator.validate("SELECT * FROM customers; DELETE FROM products;")
         assert is_valid is False
 
+    def test_block_comment_bypass(self):
+        """SQL inside block comments should still be caught after stripping."""
+        is_valid, error = SQLValidator.validate("SELECT 1 /* DROP TABLE customers */")
+        # After comment stripping, this becomes "SELECT 1" which is valid
+        assert is_valid is True
+
+    def test_line_comment_with_drop(self):
+        """DROP in a line comment should be stripped and not block the query."""
+        is_valid, error = SQLValidator.validate("SELECT * FROM customers -- DROP TABLE")
+        assert is_valid is True
+
+    def test_drop_outside_comment(self):
+        """Real DROP after comment stripping should be blocked."""
+        is_valid, error = SQLValidator.validate("/* safe */ DROP TABLE customers")
+        assert is_valid is False
+
 
 class TestQueryOptimizer:
     """Test query optimizer"""
@@ -396,11 +412,9 @@ class TestCurrencyFormatting:
         result = QueryBuddyApp._format_cell("total_amount", "abc")
         assert result == "abc"
 
-    def test_nan_falls_through(self):
+    def test_nan_returns_na(self):
         result = QueryBuddyApp._format_cell("price", float("nan"))
-        # NaN formats as $nan via f-string; try/except won't catch it
-        # but it won't crash — just verify no exception
-        assert isinstance(result, str)
+        assert result == "N/A"
 
     def test_non_currency_column_unchanged(self):
         assert QueryBuddyApp._format_cell("name", 1234.5) == "1234.5"

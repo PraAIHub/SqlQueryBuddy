@@ -3,6 +3,7 @@ from typing import List, Dict, Any, Optional
 from contextlib import contextmanager
 import random
 import sqlite3
+import threading
 from datetime import date, timedelta
 from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.exc import SQLAlchemyError
@@ -40,39 +41,58 @@ class DatabaseConnection:
     def execute_query(
         self, query: str, timeout_seconds: int = 30, max_rows: int = 1000
     ) -> Dict[str, Any]:
-        """Execute a SQL query safely with row limit enforcement"""
-        try:
-            with self.get_connection() as conn:
-                result = conn.execute(text(query))
-                rows = result.fetchall()
-                columns = list(result.keys())
+        """Execute a SQL query safely with row limit and timeout enforcement"""
+        result_container: Dict[str, Any] = {}
 
-                # Enforce max_rows limit
-                truncated = len(rows) > max_rows
-                if truncated:
-                    rows = rows[:max_rows]
+        def _run():
+            try:
+                with self.get_connection() as conn:
+                    res = conn.execute(text(query))
+                    # Use fetchmany to bound memory instead of fetchall
+                    rows = res.fetchmany(max_rows + 1)
+                    columns = list(res.keys())
 
-                response = {
-                    "success": True,
-                    "columns": columns,
-                    "rows": [dict(zip(columns, row)) for row in rows],
-                    "row_count": len(rows),
-                }
-                if truncated:
-                    response["warning"] = (
-                        f"Results truncated to {max_rows} rows"
-                    )
-                return response
-        except SQLAlchemyError as e:
+                    truncated = len(rows) > max_rows
+                    if truncated:
+                        rows = rows[:max_rows]
+
+                    response = {
+                        "success": True,
+                        "columns": columns,
+                        "rows": [dict(zip(columns, row)) for row in rows],
+                        "row_count": len(rows),
+                    }
+                    if truncated:
+                        response["warning"] = (
+                            f"Results truncated to {max_rows} rows"
+                        )
+                    result_container.update(response)
+            except SQLAlchemyError as e:
+                result_container.update({
+                    "success": False,
+                    "error": f"Query execution failed: {type(e).__name__}",
+                })
+            except Exception as e:
+                result_container.update({
+                    "success": False,
+                    "error": f"Unexpected error: {type(e).__name__}",
+                })
+
+        # Run with timeout enforcement via threading
+        thread = threading.Thread(target=_run, daemon=True)
+        thread.start()
+        thread.join(timeout=timeout_seconds)
+
+        if thread.is_alive():
             return {
                 "success": False,
-                "error": f"Query execution failed: {str(e)}",
+                "error": f"Query timed out after {timeout_seconds}s. Try adding filters to reduce the result set.",
             }
-        except Exception as e:
-            return {
-                "success": False,
-                "error": f"Unexpected error: {str(e)}",
-            }
+
+        return result_container if result_container else {
+            "success": False,
+            "error": "Query produced no result.",
+        }
 
     def get_schema(self) -> Dict[str, Dict[str, Any]]:
         """Get database schema information including foreign keys"""
@@ -114,7 +134,7 @@ class DatabaseConnection:
                 return []
 
             safe_limit = int(limit)
-            query = f"SELECT * FROM {table_name} LIMIT {safe_limit}"
+            query = f'SELECT * FROM "{table_name}" LIMIT {safe_limit}'
             result = self.execute_query(query)
             return result.get("rows", []) if result["success"] else []
         except Exception:

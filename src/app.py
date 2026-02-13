@@ -2,8 +2,11 @@
 import gradio as gr
 import csv
 import io
+import logging
+import math
 import os
 import tempfile
+import time
 from typing import Tuple, Optional
 
 import matplotlib
@@ -23,6 +26,8 @@ from src.components.rag_system import (
 from src.components.sql_generator import SQLGenerator, SQLGeneratorMock
 from src.components.insights import InsightGenerator, LocalInsightGenerator
 from src.components.optimizer import QueryOptimizer
+
+logger = logging.getLogger(__name__)
 
 
 class QueryBuddyApp:
@@ -114,7 +119,10 @@ class QueryBuddyApp:
             return str(value)
         if any(hint in col_lower for hint in QueryBuddyApp.CURRENCY_HINTS):
             try:
-                return f"${float(value):,.2f}"
+                fval = float(value)
+                if math.isnan(fval):
+                    return "N/A"
+                return f"${fval:,.2f}"
             except (ValueError, TypeError):
                 pass
         return str(value)
@@ -189,6 +197,7 @@ class QueryBuddyApp:
 
         ax.grid(axis="x", alpha=0.3)
         fig.tight_layout()
+        # Note: caller should plt.close(fig) after Gradio consumes it
         return fig
 
     def _format_history(self) -> str:
@@ -214,18 +223,9 @@ class QueryBuddyApp:
 
         user_message = user_message.strip()
 
-        # Reject obvious SQL injection / destructive intent before LLM processing
-        _dangerous = ["drop ", "delete ", "truncate ", "alter ", "update ", "insert "]
-        if any(kw in user_message.lower() for kw in _dangerous):
-            rejection = (
-                "**Query rejected:** Your input contains a destructive SQL keyword "
-                f"(`{next(kw.strip() for kw in _dangerous if kw in user_message.lower()).upper()}`). "
-                "Only SELECT queries are allowed for safety.\n\n"
-                "Try asking a data question instead, e.g. *'Show me the top 5 customers by spending'*."
-            )
-            chat_history.append({"role": "user", "content": user_message})
-            chat_history.append({"role": "assistant", "content": rejection})
-            return "", chat_history, None, "", self._format_history(), "", ""
+        # Cap input length to prevent abuse
+        if len(user_message) > 500:
+            user_message = user_message[:500]
 
         try:
             # Parse user input with NLP
@@ -240,16 +240,23 @@ class QueryBuddyApp:
                 user_message,
                 similarity_threshold=settings.similarity_threshold,
             )
-            full_schema_str = self._format_schema(schema)
 
-            # Include NLP-extracted info for the SQL generator
+            # Only append full schema when RAG finds nothing relevant (fallback)
             entities_str = ", ".join(entities) if entities else "none"
-            schema_str = (
-                f"{rag_context}\n\n"
-                f"Detected intent: {intent}\n"
-                f"Referenced entities: {entities_str}\n\n"
-                f"Full Schema:\n{full_schema_str}"
-            )
+            if "No relevant schema found" in rag_context:
+                full_schema_str = self._format_schema(schema)
+                schema_str = (
+                    f"{rag_context}\n\n"
+                    f"Detected intent: {intent}\n"
+                    f"Referenced entities: {entities_str}\n\n"
+                    f"Full Schema:\n{full_schema_str}"
+                )
+            else:
+                schema_str = (
+                    f"{rag_context}\n\n"
+                    f"Detected intent: {intent}\n"
+                    f"Referenced entities: {entities_str}"
+                )
 
             # Generate SQL (with mock fallback on API errors like 429)
             conversation_ctx = self.context_manager.get_full_context()
@@ -275,10 +282,8 @@ class QueryBuddyApp:
                 )
 
             if not result.get("success", False):
-                error_msg = result.get("error", "Unknown error")
                 response = (
-                    f"**Error generating SQL:** {error_msg}\n\n"
-                    "Please try rephrasing your question. "
+                    "**Could not generate SQL.** Please try rephrasing your question.\n\n"
                     "Example: *'Show me the top 5 customers by total purchase amount'*"
                 )
                 chat_history.append({"role": "user", "content": user_message})
@@ -287,16 +292,16 @@ class QueryBuddyApp:
 
             generated_sql = result.get("generated_sql", "")
 
-            # Execute query
+            # Execute query with timing
+            t0 = time.time()
             exec_result = self.query_executor.execute(generated_sql)
+            exec_ms = (time.time() - t0) * 1000
 
             if not exec_result.get("success", False):
-                error_msg = exec_result.get("error", "Query execution failed")
                 response = (
                     f"**SQL Generated:**\n```sql\n{generated_sql}\n```\n\n"
-                    f"**Execution Error:** {error_msg}\n\n"
-                    "The SQL was generated but failed to execute. "
-                    "Try rephrasing your question."
+                    "**Execution Error:** The query could not be executed. "
+                    "Try rephrasing your question or check column names."
                 )
                 chat_history.append({"role": "user", "content": user_message})
                 chat_history.append({"role": "assistant", "content": response})
@@ -311,6 +316,9 @@ class QueryBuddyApp:
                 "sql": generated_sql,
                 "rows": exec_result.get("row_count", 0),
             })
+            # Cap history to last 50 entries
+            if len(self._query_history) > 50:
+                self._query_history = self._query_history[-50:]
 
             # Format response
             response_lines = [
@@ -321,9 +329,12 @@ class QueryBuddyApp:
                 "",
             ]
 
-            # Add results
+            # Add results with execution metadata
             row_count = exec_result.get("row_count", 0)
-            response_lines.append(f"**Results:** {row_count} rows found")
+            truncated = exec_result.get("warning", "")
+            timing_str = f"*(executed in {exec_ms:.0f}ms)*"
+            limit_note = " (LIMIT applied)" if truncated else ""
+            response_lines.append(f"**Results:** {row_count} rows found{limit_note} {timing_str}")
 
             # Show first few rows
             if data:
@@ -359,17 +370,19 @@ class QueryBuddyApp:
                 generated_sql=generated_sql,
             )
 
-            # Generate chart from results
-            chart = self._generate_chart(data) if data else None
+            # Generate chart from results (close previous figures to avoid leaks)
+            chart = None
+            if data:
+                chart = self._generate_chart(data)
 
             chat_history.append({"role": "user", "content": user_message})
             chat_history.append({"role": "assistant", "content": response_text})
             return "", chat_history, chart, insights_md, self._format_history(), rag_context, generated_sql
 
         except Exception as e:
+            logger.exception("Unexpected error in process_query")
             error_response = (
-                f"**Unexpected error:** {str(e)}\n\n"
-                "Please try again or rephrase your question."
+                "**Something went wrong.** Please try again or rephrase your question."
             )
             chat_history.append({"role": "user", "content": user_message})
             chat_history.append({"role": "assistant", "content": error_response})
@@ -504,6 +517,7 @@ class QueryBuddyApp:
                         label="Conversation",
                         height=350,
                         show_label=False,
+                        type="messages",
                     )
 
                     # Dedicated panels for Visualization and AI Insights
@@ -626,11 +640,12 @@ class QueryBuddyApp:
                 path = self.export_csv()
                 if path:
                     return gr.File(value=path, visible=True)
+                gr.Info("No results to export. Run a query first.")
                 return gr.File(visible=False)
 
             export_btn.click(handle_export, outputs=[export_file])
 
-            # Example query buttons: populate textbox and auto-submit
+            # Example query buttons: fill textbox then auto-submit
             example_queries = {
                 ex1: "Show me the top 5 customers by total purchase amount",
                 ex2: "Which product category made the most revenue?",
@@ -643,8 +658,11 @@ class QueryBuddyApp:
             }
             for btn, query in example_queries.items():
                 btn.click(
+                    lambda q=query: q,
+                    outputs=[msg],
+                ).then(
                     self.process_query,
-                    inputs=[gr.State(query), chatbot],
+                    inputs=[msg, chatbot],
                     outputs=query_outputs,
                 )
 
@@ -668,6 +686,7 @@ def main():
     app = QueryBuddyApp()
     demo = app.create_interface()
 
+    demo.queue(default_concurrency_limit=1)
     demo.launch(
         server_name=settings.server_host,
         server_port=settings.gradio_server_port,

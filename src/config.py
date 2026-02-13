@@ -31,7 +31,7 @@ class Settings(BaseSettings):
     )
 
     # Application Configuration
-    debug: bool = Field(default=True, alias="DEBUG")
+    debug: bool = Field(default=False, alias="DEBUG")
     log_level: str = Field(default="INFO", alias="LOG_LEVEL")
     max_rows_return: int = Field(default=1000, alias="MAX_ROWS_RETURN")
     query_timeout_seconds: int = Field(default=30, alias="QUERY_TIMEOUT_SECONDS")
