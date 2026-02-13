@@ -1,6 +1,9 @@
 """Gradio web interface for SQL Query Buddy"""
 import gradio as gr
+import csv
+import io
 import os
+import tempfile
 from typing import Tuple
 from src.config import settings
 from src.components.executor import DatabaseConnection, QueryExecutor, SQLiteDatabase
@@ -76,6 +79,10 @@ class QueryBuddyApp:
         # Initialize optimizer
         self.optimizer = QueryOptimizer()
 
+        # Store last results for export
+        self._last_results = []
+        self._last_sql = ""
+
     def process_query(
         self, user_message: str, chat_history: list
     ) -> Tuple[str, list]:
@@ -145,6 +152,11 @@ class QueryBuddyApp:
                 chat_history.append({"role": "assistant", "content": response})
                 return "", chat_history
 
+            # Store results for export
+            data = exec_result.get("data", [])
+            self._last_results = data
+            self._last_sql = generated_sql
+
             # Format response
             response_lines = [
                 "**Generated SQL:**",
@@ -159,7 +171,6 @@ class QueryBuddyApp:
             response_lines.append(f"**Results:** {row_count} rows found")
 
             # Show first few rows
-            data = exec_result.get("data", [])
             if data:
                 response_lines.append("\n**Data Preview:**")
                 headers = list(data[0].keys())
@@ -271,6 +282,23 @@ class QueryBuddyApp:
             lines.append("")
         return "\n".join(lines)
 
+    def export_csv(self):
+        """Export last query results as a CSV file."""
+        if not self._last_results:
+            return None
+        output = io.StringIO()
+        headers = list(self._last_results[0].keys())
+        writer = csv.DictWriter(output, fieldnames=headers)
+        writer.writeheader()
+        writer.writerows(self._last_results)
+        # Write to a temp file for Gradio download
+        tmp = tempfile.NamedTemporaryFile(
+            mode="w", suffix=".csv", delete=False, prefix="query_results_"
+        )
+        tmp.write(output.getvalue())
+        tmp.close()
+        return tmp.name
+
     def _build_status_text(self) -> str:
         """Build system status text"""
         llm_status = (
@@ -316,7 +344,11 @@ class QueryBuddyApp:
                         submit_btn = gr.Button(
                             "Send", variant="primary", scale=1
                         )
+                        export_btn = gr.Button("Export CSV", scale=1)
                         clear = gr.Button("Clear Chat", scale=1)
+                    export_file = gr.File(
+                        label="Download Results", visible=False
+                    )
 
                     gr.Markdown("**Try these example queries** *(click to send)*:")
                     with gr.Row():
@@ -379,6 +411,14 @@ class QueryBuddyApp:
                 return [], ""
 
             clear.click(clear_chat, outputs=[chatbot, msg])
+
+            def handle_export():
+                path = self.export_csv()
+                if path:
+                    return gr.File(value=path, visible=True)
+                return gr.File(visible=False)
+
+            export_btn.click(handle_export, outputs=[export_file])
 
             # Example query buttons: populate textbox and auto-submit
             example_queries = {

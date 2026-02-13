@@ -1,6 +1,7 @@
 """SQL generation engine powered by LangChain and LLMs"""
 from typing import Optional, Dict, List
 import re
+import time
 
 try:
     from langchain_core.prompts import PromptTemplate, ChatPromptTemplate
@@ -144,6 +145,35 @@ class SQLGenerator:
         self.validator = SQLValidator()
         self.prompt_builder = SQLPromptBuilder()
 
+    MAX_RETRIES = 2
+    RETRY_DELAY = 1  # seconds
+
+    def _invoke_llm(self, messages) -> str:
+        """Invoke LLM with retry logic for transient API failures."""
+        last_error = None
+        for attempt in range(1 + self.MAX_RETRIES):
+            try:
+                response = self.llm.invoke(messages)
+                return response.content.strip()
+            except Exception as e:
+                last_error = e
+                if attempt < self.MAX_RETRIES:
+                    time.sleep(self.RETRY_DELAY * (attempt + 1))
+        raise last_error
+
+    @staticmethod
+    def _clean_sql(raw: str) -> str:
+        """Strip markdown fences and leading SQL comments from LLM output."""
+        sql = raw
+        if sql.startswith("```"):
+            sql = sql.split("```")[1]
+            if sql.startswith("sql"):
+                sql = sql[3:]
+            sql = sql.strip()
+        sql = re.sub(r"^\s*(--[^\n]*\n\s*)*", "", sql).strip()
+        sql = re.sub(r"^\s*/\*.*?\*/\s*", "", sql, flags=re.DOTALL).strip()
+        return sql
+
     def generate(
         self,
         user_query: str,
@@ -166,20 +196,9 @@ class SQLGenerator:
             else:
                 messages = [user_content]
 
-            # Generate SQL via LangChain LLM
-            response = self.llm.invoke(messages)
-            generated_sql = response.content.strip()
-
-            # Remove markdown code blocks if present
-            if generated_sql.startswith("```"):
-                generated_sql = generated_sql.split("```")[1]
-                if generated_sql.startswith("sql"):
-                    generated_sql = generated_sql[3:]
-                generated_sql = generated_sql.strip()
-
-            # Strip leading SQL comments (-- or /* */)
-            generated_sql = re.sub(r"^\s*(--[^\n]*\n\s*)*", "", generated_sql).strip()
-            generated_sql = re.sub(r"^\s*/\*.*?\*/\s*", "", generated_sql, flags=re.DOTALL).strip()
+            # Generate SQL via LangChain LLM (with retry)
+            raw_sql = self._invoke_llm(messages)
+            generated_sql = self._clean_sql(raw_sql)
 
             # Validate
             is_valid, error_msg = self.validator.validate(generated_sql)
