@@ -11,9 +11,22 @@ from sqlalchemy.exc import SQLAlchemyError
 class DatabaseConnection:
     """Manages database connections and queries"""
 
-    def __init__(self, database_url: str):
+    def __init__(self, database_url: str, read_only: bool = True):
         self.database_url = database_url
-        self.engine = create_engine(database_url)
+        self._read_only = read_only
+
+        if read_only and database_url.startswith("sqlite"):
+            from sqlalchemy import event
+
+            self.engine = create_engine(database_url)
+
+            @event.listens_for(self.engine, "connect")
+            def _set_sqlite_read_only(dbapi_conn, connection_record):
+                cursor = dbapi_conn.cursor()
+                cursor.execute("PRAGMA query_only = ON")
+                cursor.close()
+        else:
+            self.engine = create_engine(database_url)
 
     @contextmanager
     def get_connection(self):

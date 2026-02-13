@@ -333,6 +333,14 @@ class RAGSystem:
         context = self.retrieve_context(
             user_query, similarity_threshold=similarity_threshold
         )
+
+        if not context:
+            return (
+                "No relevant schema found for this query. "
+                "The question may not relate to the database. "
+                "Available tables: customers, products, orders, order_items."
+            )
+
         lines = ["Relevant Schema Elements:"]
 
         for item in context:

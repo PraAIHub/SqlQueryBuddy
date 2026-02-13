@@ -197,11 +197,11 @@ class QueryBuddyApp:
 
     def process_query(
         self, user_message: str, chat_history: list
-    ) -> Tuple[str, list, Optional[matplotlib.figure.Figure], str, str, str]:
-        """Process user query and return response, chart, insights, history, and RAG context"""
+    ) -> Tuple[str, list, Optional[matplotlib.figure.Figure], str, str, str, str]:
+        """Process user query and return response, chart, insights, history, RAG context, and SQL"""
         # Validate empty input
         if not user_message or not user_message.strip():
-            return "", chat_history, None, "", self._format_history(), ""
+            return "", chat_history, None, "", self._format_history(), "", ""
 
         user_message = user_message.strip()
 
@@ -261,7 +261,7 @@ class QueryBuddyApp:
                 )
                 chat_history.append({"role": "user", "content": user_message})
                 chat_history.append({"role": "assistant", "content": response})
-                return "", chat_history, None, "", self._format_history(), ""
+                return "", chat_history, None, "", self._format_history(), "", ""
 
             generated_sql = result.get("generated_sql", "")
 
@@ -278,7 +278,7 @@ class QueryBuddyApp:
                 )
                 chat_history.append({"role": "user", "content": user_message})
                 chat_history.append({"role": "assistant", "content": response})
-                return "", chat_history, None, "", self._format_history(), rag_context
+                return "", chat_history, None, "", self._format_history(), rag_context, generated_sql
 
             # Store results for export and history
             data = exec_result.get("data", [])
@@ -342,7 +342,7 @@ class QueryBuddyApp:
 
             chat_history.append({"role": "user", "content": user_message})
             chat_history.append({"role": "assistant", "content": response_text})
-            return "", chat_history, chart, insights_md, self._format_history(), rag_context
+            return "", chat_history, chart, insights_md, self._format_history(), rag_context, generated_sql
 
         except Exception as e:
             error_response = (
@@ -351,7 +351,7 @@ class QueryBuddyApp:
             )
             chat_history.append({"role": "user", "content": user_message})
             chat_history.append({"role": "assistant", "content": error_response})
-            return "", chat_history, None, "", self._format_history(), ""
+            return "", chat_history, None, "", self._format_history(), "", ""
 
     @staticmethod
     def _format_schema(schema: dict) -> str:
@@ -497,6 +497,13 @@ class QueryBuddyApp:
                                 value="*Run a query to see AI-powered insights here.*",
                             )
 
+                    with gr.Accordion("Generated SQL (click to copy)", open=False):
+                        sql_output = gr.Code(
+                            label="SQL",
+                            language="sql",
+                            value="-- Run a query to see generated SQL here",
+                        )
+
                     with gr.Row():
                         msg = gr.Textbox(
                             label="Your question",
@@ -576,7 +583,7 @@ class QueryBuddyApp:
                     )
 
             # Event handlers: Enter key and Send button both submit
-            query_outputs = [msg, chatbot, chart_output, insights_output, history_output, rag_output]
+            query_outputs = [msg, chatbot, chart_output, insights_output, history_output, rag_output, sql_output]
             msg.submit(self.process_query, [msg, chatbot], query_outputs)
             submit_btn.click(self.process_query, [msg, chatbot], query_outputs)
 
@@ -588,9 +595,10 @@ class QueryBuddyApp:
                     "*Run a query to see AI-powered insights here.*",
                     "*No queries yet.*",
                     "*RAG context will appear here after a query.*",
+                    "-- Run a query to see generated SQL here",
                 )
 
-            clear.click(clear_chat, outputs=[chatbot, msg, chart_output, insights_output, history_output, rag_output])
+            clear.click(clear_chat, outputs=[chatbot, msg, chart_output, insights_output, history_output, rag_output, sql_output])
 
             def handle_export():
                 path = self.export_csv()

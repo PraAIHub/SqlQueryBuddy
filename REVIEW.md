@@ -152,23 +152,51 @@ All tests run against deployed HuggingFace Spaces app on Feb 13, 2026.
 
 ---
 
+## ChatGPT & Gemini Review Fixes
+
+All items from external reviews have been addressed:
+
+| Review Item | Source | Status |
+|-------------|--------|--------|
+| Currency formatting bug | ChatGPT | Verified OK (no bug) |
+| Test report/schema mismatch | ChatGPT | FIXED - TEST_REPORT.md rewritten |
+| Mode banner (Mock vs Live LLM) | ChatGPT | FIXED - shown at top of Chat tab |
+| RAG transparency panel | ChatGPT | FIXED - accordion showing retrieved schema |
+| Concrete optimizer suggestions | ChatGPT | FIXED - specific column/index hints |
+| Private backend for code protection | ChatGPT | DEFERRED (planned for later) |
+| Read-only DB connection | Gemini | FIXED - PRAGMA query_only = ON |
+| Prompt: no hallucinated columns | Gemini | DONE (system prompt + schema grounding) |
+| Similarity threshold / unrelated queries | Gemini | FIXED - returns "No relevant schema found" |
+| Prompt injection guardrail | Gemini | DONE (SELECT-only validation + prompt) |
+| Zero-result handling | Gemini | FIXED - context-aware empty result messages |
+| Paginated results | Gemini | N/A - already limited to 10 rows preview + 1000 max |
+| Copy SQL button | Gemini | FIXED - gr.Code accordion with copy support |
+| Data Visualization | Gemini | FIXED - matplotlib bar + line charts |
+| Anomaly detection | Gemini | FIXED - z-score spike/drop detection |
+
+---
+
 ## Comparison: Our App vs Competitor (Updated)
 
 ### Features We Have That Competitor Doesn't
-- Data visualization (matplotlib charts) - NOW WORKING
+- Data visualization (matplotlib charts) - bar + line charts
 - Currency formatting ($49,315.00)
 - Export to CSV
+- Copy SQL button (gr.Code with copy support)
 - System Status dashboard (shows DB, LLM, VectorDB, RAG status)
+- Mode banner (Live LLM vs Demo mode)
+- RAG transparency panel (shows retrieved schema context)
 - 8 clickable example query buttons
 - Visible RAG/FAISS/LangChain integration (key contest requirement)
-- Works without API key (mock fallback mode)
+- Works without API key (mock fallback + auto-fallback on 429)
 - Multi-database support (SQLite/PostgreSQL/MySQL)
-- Separate AI Insights panel
+- Read-only database connection (PRAGMA query_only)
+- Separate AI Insights panel with anomaly detection
+- Query history accordion
 - Docker deployment ready
 - ~10,000 rows of realistic data
 
 ### Features Competitor Has That We Don't
-- **Query history with rerun** - nice to have
 - **Larger dataset** (they have more but ours is now substantial at 10K rows)
 - Separate panels layout (dashboard style vs our tabbed chat style)
 
