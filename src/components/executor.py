@@ -1,7 +1,9 @@
 """Query execution and database management"""
 from typing import List, Dict, Any, Optional
 from contextlib import contextmanager
+import random
 import sqlite3
+from datetime import date, timedelta
 from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.exc import SQLAlchemyError
 
@@ -208,60 +210,115 @@ class SQLiteDatabase:
             )
         """)
 
-        # Sample Customers
+        # --- Programmatic data generation for realistic dataset ---
+        rng = random.Random(42)
+
+        first_names = [
+            "Alice", "John", "Maria", "David", "Sofia", "James", "Emma",
+            "Liam", "Olivia", "Noah", "Ava", "William", "Isabella", "Lucas",
+            "Mia", "Henry", "Charlotte", "Alexander", "Amelia", "Benjamin",
+            "Harper", "Daniel", "Evelyn", "Matthew", "Abigail", "Samuel",
+            "Emily", "Joseph", "Ella", "Jackson",
+        ]
+        last_names = [
+            "Chen", "Patel", "Lopez", "Johnson", "Khan", "Smith", "Williams",
+            "Brown", "Jones", "Garcia", "Miller", "Davis", "Rodriguez",
+            "Martinez", "Anderson", "Taylor", "Thomas", "Moore", "Martin",
+            "Lee", "Thompson", "White", "Harris", "Clark", "Lewis", "Young",
+            "Walker", "Hall", "Allen", "King",
+        ]
+        regions = [
+            "California", "New York", "Texas", "Florida", "Illinois",
+            "Washington", "Georgia", "Ohio", "Pennsylvania", "Colorado",
+        ]
+        product_catalog = [
+            ("Laptop Pro 15", "Electronics", 1200.00),
+            ("Wireless Mouse", "Accessories", 40.00),
+            ("Standing Desk", "Furniture", 300.00),
+            ("Noise Cancelling Headphones", "Electronics", 150.00),
+            ("Office Chair Deluxe", "Furniture", 180.00),
+            ("USB-C Hub", "Accessories", 45.00),
+            ("Monitor 27 inch", "Electronics", 350.00),
+            ("Desk Lamp LED", "Office Supplies", 35.00),
+            ("Mechanical Keyboard", "Accessories", 120.00),
+            ("Webcam HD", "Electronics", 80.00),
+            ("Filing Cabinet", "Furniture", 200.00),
+            ("Notebook Pack", "Office Supplies", 15.00),
+            ("Printer Inkjet", "Electronics", 250.00),
+            ("Mouse Pad XL", "Accessories", 25.00),
+            ("Whiteboard Large", "Office Supplies", 90.00),
+            ("Ergonomic Footrest", "Furniture", 65.00),
+            ("Cable Management Kit", "Office Supplies", 20.00),
+            ("External SSD 1TB", "Electronics", 110.00),
+            ("Laptop Stand", "Accessories", 55.00),
+            ("Desk Organizer", "Office Supplies", 30.00),
+        ]
+
+        # Customers: keep original 5 at IDs 1-5, generate 115 more
+        customers = [
+            (1, "Alice Chen", "alice.chen@example.com", "California", "2023-02-01"),
+            (2, "John Patel", "john.patel@example.com", "New York", "2023-05-15"),
+            (3, "Maria Lopez", "maria.lopez@example.com", "Texas", "2022-11-30"),
+            (4, "David Johnson", "david.johnson@example.com", "Florida", "2023-07-22"),
+            (5, "Sofia Khan", "sofia.khan@example.com", "Illinois", "2023-04-10"),
+        ]
+        used_emails = {c[2] for c in customers}
+        for i in range(6, 121):
+            first = rng.choice(first_names)
+            last = rng.choice(last_names)
+            email = f"{first.lower()}.{last.lower()}{i}@example.com"
+            while email in used_emails:
+                email = f"{first.lower()}.{last.lower()}{i}x@example.com"
+            used_emails.add(email)
+            signup = date(2022, 1, 1) + timedelta(days=rng.randint(0, 1095))
+            customers.append(
+                (i, f"{first} {last}", email, rng.choice(regions), signup.isoformat())
+            )
         cursor.executemany(
             "INSERT INTO customers (customer_id, name, email, region, signup_date) VALUES (?, ?, ?, ?, ?)",
-            [
-                (1, 'Alice Chen', 'alice.chen@example.com', 'California', '2023-02-01'),
-                (2, 'John Patel', 'john.patel@example.com', 'New York', '2023-05-15'),
-                (3, 'Maria Lopez', 'maria.lopez@example.com', 'Texas', '2022-11-30'),
-                (4, 'David Johnson', 'david.johnson@example.com', 'Florida', '2023-07-22'),
-                (5, 'Sofia Khan', 'sofia.khan@example.com', 'Illinois', '2023-04-10'),
-            ],
+            customers,
         )
 
-        # Sample Products
+        # Products: 20 items from catalog
+        products = [
+            (i + 1, name, cat, price)
+            for i, (name, cat, price) in enumerate(product_catalog)
+        ]
         cursor.executemany(
             "INSERT INTO products (product_id, name, category, price) VALUES (?, ?, ?, ?)",
-            [
-                (1, 'Laptop Pro 15', 'Electronics', 1200.00),
-                (2, 'Wireless Mouse', 'Accessories', 40.00),
-                (3, 'Standing Desk', 'Furniture', 300.00),
-                (4, 'Noise Cancelling Headphones', 'Electronics', 150.00),
-                (5, 'Office Chair Deluxe', 'Furniture', 180.00),
-            ],
+            products,
         )
 
-        # Sample Orders (total_amount matches SUM of order_items.subtotal)
+        # Build price lookup
+        price_map = {p[0]: p[3] for p in products}
+        num_products = len(products)
+
+        # Orders (600) and Order Items (~1500) generated together for consistency
+        orders = []
+        order_items = []
+        item_id = 1
+        for order_id in range(101, 701):
+            cust_id = rng.randint(1, 120)
+            order_date = date(2023, 1, 1) + timedelta(days=rng.randint(0, 1060))
+            num_items = rng.randint(1, 5)
+            order_total = 0.0
+            for _ in range(num_items):
+                prod_id = rng.randint(1, num_products)
+                qty = rng.randint(1, 4)
+                subtotal = round(qty * price_map[prod_id], 2)
+                order_total += subtotal
+                order_items.append((item_id, order_id, prod_id, qty, subtotal))
+                item_id += 1
+            orders.append(
+                (order_id, cust_id, order_date.isoformat(), round(order_total, 2))
+            )
         cursor.executemany(
             "INSERT INTO orders (order_id, customer_id, order_date, total_amount) VALUES (?, ?, ?, ?)",
-            [
-                (101, 1, '2024-01-12', 1240.00),
-                (102, 2, '2024-03-05', 230.00),
-                (103, 3, '2024-02-20', 1910.00),
-                (104, 1, '2024-04-02', 300.00),
-                (105, 4, '2024-05-15', 450.00),
-                (106, 5, '2024-06-10', 180.00),
-            ],
+            orders,
         )
-
-        # Sample Order Items (order 103 has 4 items for "more than 3" demo)
         cursor.executemany(
             "INSERT INTO order_items (item_id, order_id, product_id, quantity, subtotal) VALUES (?, ?, ?, ?, ?)",
-            [
-                (1, 101, 1, 1, 1200.00),
-                (2, 101, 2, 1, 40.00),
-                (3, 102, 2, 2, 80.00),
-                (4, 102, 4, 1, 150.00),
-                (5, 103, 3, 5, 1500.00),
-                (6, 103, 2, 2, 80.00),
-                (7, 103, 4, 1, 150.00),
-                (8, 103, 5, 1, 180.00),
-                (9, 104, 5, 1, 180.00),
-                (10, 104, 2, 3, 120.00),
-                (11, 105, 4, 3, 450.00),
-                (12, 106, 5, 1, 180.00),
-            ],
+            order_items,
         )
 
         conn.commit()

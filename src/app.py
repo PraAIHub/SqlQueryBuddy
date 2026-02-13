@@ -4,7 +4,12 @@ import csv
 import io
 import os
 import tempfile
-from typing import Tuple
+from typing import Tuple, Optional
+
+import matplotlib
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt
+import matplotlib.figure
 from src.config import settings
 from src.components.executor import DatabaseConnection, QueryExecutor, SQLiteDatabase
 from src.components.nlp_processor import ContextManager
@@ -83,13 +88,103 @@ class QueryBuddyApp:
         self._last_results = []
         self._last_sql = ""
 
+    # Column name hints that indicate monetary values
+    CURRENCY_HINTS = {
+        "price", "total", "revenue", "amount", "spent", "subtotal",
+        "total_spent", "total_sales", "total_revenue", "total_amount",
+        "avg_order_value", "monthly_revenue",
+    }
+
+    @staticmethod
+    def _format_cell(column_name: str, value) -> str:
+        """Format a cell value; apply $X,XXX.XX for currency columns."""
+        col_lower = column_name.lower()
+        if any(hint in col_lower for hint in QueryBuddyApp.CURRENCY_HINTS):
+            try:
+                return f"${float(value):,.2f}"
+            except (ValueError, TypeError):
+                pass
+        return str(value)
+
+    def _generate_chart(self, data: list) -> Optional[matplotlib.figure.Figure]:
+        """Auto-detect chartable data and return a matplotlib Figure or None."""
+        if not data or len(data) < 2:
+            return None
+
+        headers = list(data[0].keys())
+        if len(headers) < 2:
+            return None
+
+        date_col = None
+        numeric_col = None
+        categorical_col = None
+
+        for h in headers:
+            h_lower = h.lower()
+            sample_val = data[0].get(h)
+            if any(kw in h_lower for kw in [
+                "month", "date", "year", "quarter", "week", "period",
+            ]):
+                date_col = h
+            elif isinstance(sample_val, (int, float)):
+                if numeric_col is None:
+                    numeric_col = h
+            elif isinstance(sample_val, str):
+                try:
+                    float(sample_val)
+                    if numeric_col is None:
+                        numeric_col = h
+                except (ValueError, TypeError):
+                    if categorical_col is None:
+                        categorical_col = h
+
+        if not date_col and not categorical_col and len(headers) >= 2:
+            if headers[0] != numeric_col:
+                categorical_col = headers[0]
+
+        if numeric_col is None:
+            return None
+
+        fig, ax = plt.subplots(figsize=(8, 4))
+        rows = data[:30]
+        values = []
+        for row in rows:
+            try:
+                values.append(float(row.get(numeric_col, 0)))
+            except (ValueError, TypeError):
+                values.append(0)
+
+        if date_col:
+            labels = [str(row.get(date_col, "")) for row in rows]
+            ax.plot(range(len(labels)), values, marker="o", linewidth=2, color="#2563eb")
+            ax.set_xticks(range(len(labels)))
+            ax.set_xticklabels(labels, rotation=45, ha="right", fontsize=8)
+            ax.set_title(f"{numeric_col} over {date_col}", fontsize=12, fontweight="bold")
+            ax.set_ylabel(numeric_col)
+        elif categorical_col:
+            labels = [str(row.get(categorical_col, ""))[:20] for row in rows[:20]]
+            vals = values[:20]
+            ax.barh(range(len(labels)), vals, color="#2563eb")
+            ax.set_yticks(range(len(labels)))
+            ax.set_yticklabels(labels, fontsize=9)
+            ax.set_title(f"{numeric_col} by {categorical_col}", fontsize=12, fontweight="bold")
+            ax.set_xlabel(numeric_col)
+            ax.invert_yaxis()
+        else:
+            plt.close(fig)
+            return None
+
+        ax.grid(axis="x", alpha=0.3)
+        fig.tight_layout()
+        return fig
+
     def process_query(
         self, user_message: str, chat_history: list
-    ) -> Tuple[str, list]:
-        """Process user query and return response"""
+    ) -> Tuple[str, list, Optional[matplotlib.figure.Figure], str]:
+        """Process user query and return response, chart, and insights"""
         # Validate empty input
         if not user_message or not user_message.strip():
-            return "", chat_history
+            return "", chat_history, None, ""
 
         user_message = user_message.strip()
 
@@ -133,7 +228,7 @@ class QueryBuddyApp:
                 )
                 chat_history.append({"role": "user", "content": user_message})
                 chat_history.append({"role": "assistant", "content": response})
-                return "", chat_history
+                return "", chat_history, None, ""
 
             generated_sql = result.get("generated_sql", "")
 
@@ -150,7 +245,7 @@ class QueryBuddyApp:
                 )
                 chat_history.append({"role": "user", "content": user_message})
                 chat_history.append({"role": "assistant", "content": response})
-                return "", chat_history
+                return "", chat_history, None, ""
 
             # Store results for export
             data = exec_result.get("data", [])
@@ -177,7 +272,7 @@ class QueryBuddyApp:
                 response_lines.append("|" + "|".join(headers) + "|")
                 response_lines.append("|" + "|".join(["---"] * len(headers)) + "|")
                 for row in data[:10]:
-                    values = [str(row.get(h, "")) for h in headers]
+                    values = [self._format_cell(h, row.get(h, "")) for h in headers]
                     response_lines.append("|" + "|".join(values) + "|")
 
                 if len(data) > 10:
@@ -193,10 +288,11 @@ class QueryBuddyApp:
                         f"*(severity: {suggestion.get('severity', 'low')})*"
                     )
 
-            # Add AI-driven insights (uses LLM if available, local analysis otherwise)
+            # Generate AI insights (displayed in dedicated panel)
+            insights_md = ""
             if data:
                 insights = self.insight_generator.generate_insights(data, user_message)
-                response_lines.append(f"\n**AI Insights:** {insights}")
+                insights_md = insights
 
             # Update context
             response_text = "\n".join(response_lines)
@@ -206,9 +302,12 @@ class QueryBuddyApp:
                 generated_sql=generated_sql,
             )
 
+            # Generate chart from results
+            chart = self._generate_chart(data) if data else None
+
             chat_history.append({"role": "user", "content": user_message})
             chat_history.append({"role": "assistant", "content": response_text})
-            return "", chat_history
+            return "", chat_history, chart, insights_md
 
         except Exception as e:
             error_response = (
@@ -217,7 +316,7 @@ class QueryBuddyApp:
             )
             chat_history.append({"role": "user", "content": user_message})
             chat_history.append({"role": "assistant", "content": error_response})
-            return "", chat_history
+            return "", chat_history, None, ""
 
     @staticmethod
     def _format_schema(schema: dict) -> str:
@@ -275,7 +374,7 @@ class QueryBuddyApp:
                 lines.append("|" + "|".join(headers) + "|")
                 lines.append("|" + "|".join(["---"] * len(headers)) + "|")
                 for row in rows:
-                    values = [str(row.get(h, "")) for h in headers]
+                    values = [self._format_cell(h, row.get(h, "")) for h in headers]
                     lines.append("|" + "|".join(values) + "|")
             else:
                 lines.append("*No data available*")
@@ -330,9 +429,22 @@ class QueryBuddyApp:
                 with gr.Tab("Chat"):
                     chatbot = gr.Chatbot(
                         label="Conversation",
-                        height=500,
+                        height=350,
                         show_label=False,
                     )
+
+                    # Dedicated panels for Visualization and AI Insights
+                    with gr.Row():
+                        with gr.Column(scale=3):
+                            gr.Markdown("### Visualization")
+                            chart_output = gr.Plot(
+                                label="Chart", show_label=False,
+                            )
+                        with gr.Column(scale=2):
+                            gr.Markdown("### AI Insights")
+                            insights_output = gr.Markdown(
+                                value="*Run a query to see AI-powered insights here.*",
+                            )
 
                     with gr.Row():
                         msg = gr.Textbox(
@@ -403,14 +515,15 @@ class QueryBuddyApp:
                     )
 
             # Event handlers: Enter key and Send button both submit
-            msg.submit(self.process_query, [msg, chatbot], [msg, chatbot])
-            submit_btn.click(self.process_query, [msg, chatbot], [msg, chatbot])
+            query_outputs = [msg, chatbot, chart_output, insights_output]
+            msg.submit(self.process_query, [msg, chatbot], query_outputs)
+            submit_btn.click(self.process_query, [msg, chatbot], query_outputs)
 
             def clear_chat():
                 self.context_manager.reset()
-                return [], ""
+                return [], "", None, "*Run a query to see AI-powered insights here.*"
 
-            clear.click(clear_chat, outputs=[chatbot, msg])
+            clear.click(clear_chat, outputs=[chatbot, msg, chart_output, insights_output])
 
             def handle_export():
                 path = self.export_csv()
@@ -435,7 +548,7 @@ class QueryBuddyApp:
                 btn.click(
                     self.process_query,
                     inputs=[gr.State(query), chatbot],
-                    outputs=[msg, chatbot],
+                    outputs=query_outputs,
                 )
 
         return demo

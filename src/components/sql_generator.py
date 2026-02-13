@@ -439,10 +439,16 @@ class SQLGeneratorMock:
         "texas": "region = 'Texas'",
         "florida": "region = 'Florida'",
         "illinois": "region = 'Illinois'",
+        "washington": "region = 'Washington'",
+        "georgia": "region = 'Georgia'",
+        "ohio": "region = 'Ohio'",
+        "pennsylvania": "region = 'Pennsylvania'",
+        "colorado": "region = 'Colorado'",
         # Categories
         "electronics": "category = 'Electronics'",
         "furniture": "category = 'Furniture'",
         "accessories": "category = 'Accessories'",
+        "office supplies": "category = 'Office Supplies'",
         # Specific customers
         "alice": "name LIKE '%Alice%'",
         "john": "name LIKE '%John%'",
