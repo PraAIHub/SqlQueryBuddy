@@ -22,8 +22,8 @@
 - [x] Test multi-turn conversation with real LLM (3/3 passing)
 - [x] Fix SQLite syntax in LLM prompt (no MySQL DATE_SUB/EXTRACT)
 - [x] Fix SQL comment stripping before validation
-- [ ] Choose hosting platform and deploy
-- [ ] Verify deployed demo end-to-end
+- [x] Deploy to Hugging Face Spaces (Docker)
+- [x] Verify deployed demo end-to-end
 
 ## Future Enhancements
 - [ ] OpenAI API integration for production
