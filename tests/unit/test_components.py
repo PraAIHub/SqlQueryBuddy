@@ -150,6 +150,29 @@ class TestTrendAnalyzer:
         assert "value" in trends
         assert trends["value"]["direction"] == "decreasing"
 
+    def test_anomaly_detection_spike(self):
+        data = [
+            {"value": 100},
+            {"value": 105},
+            {"value": 98},
+            {"value": 102},
+            {"value": 99},
+            {"value": 800},  # obvious spike
+        ]
+        anomalies = TrendAnalyzer.detect_anomalies(data)
+        assert "value" in anomalies
+        assert anomalies["value"][0]["type"] == "spike"
+
+    def test_anomaly_detection_no_anomalies(self):
+        data = [
+            {"value": 100},
+            {"value": 101},
+            {"value": 99},
+            {"value": 100},
+        ]
+        anomalies = TrendAnalyzer.detect_anomalies(data)
+        assert len(anomalies) == 0
+
 
 class TestRAGSystem:
     """Test RAG pipeline components"""

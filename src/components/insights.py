@@ -184,6 +184,51 @@ class TrendAnalyzer:
 
         return trends
 
+    @staticmethod
+    def detect_anomalies(data: List[Dict[str, Any]]) -> Dict[str, List[Dict[str, Any]]]:
+        """Detect anomalies (spikes/drops) in numeric columns.
+
+        Uses a simple z-score approach: values more than 2 standard
+        deviations from the mean are flagged as anomalies.
+        """
+        anomalies: Dict[str, List[Dict[str, Any]]] = {}
+
+        if not data or len(data) < 4:
+            return anomalies
+
+        first_row = data[0]
+        numeric_cols = [k for k, v in first_row.items() if isinstance(v, (int, float))]
+
+        for col in numeric_cols:
+            values = [row.get(col) for row in data if isinstance(row.get(col), (int, float))]
+            if len(values) < 4:
+                continue
+
+            mean = sum(values) / len(values)
+            variance = sum((v - mean) ** 2 for v in values) / len(values)
+            std = variance ** 0.5
+
+            if std == 0:
+                continue
+
+            col_anomalies = []
+            for i, val in enumerate(values):
+                z_score = (val - mean) / std
+                if abs(z_score) > 2.0:
+                    kind = "spike" if z_score > 0 else "drop"
+                    col_anomalies.append({
+                        "index": i,
+                        "value": val,
+                        "mean": round(mean, 2),
+                        "z_score": round(z_score, 2),
+                        "type": kind,
+                    })
+
+            if col_anomalies:
+                anomalies[col] = col_anomalies
+
+        return anomalies
+
 
 class ResultsAnalyzer:
     """Comprehensive results analysis"""
@@ -312,6 +357,21 @@ class LocalInsightGenerator:
                         f"{col.replace('_', ' ').title()} is {direction} "
                         f"({pct_change:+.1f}% overall change)."
                     )
+
+        # Anomaly detection (spikes/drops)
+        anomalies = TrendAnalyzer.detect_anomalies(query_results)
+        for col, items in anomalies.items():
+            for a in items[:2]:  # Report at most 2 anomalies per column
+                # Try to find a label for the anomalous row
+                idx = a["index"]
+                label = ""
+                if name_col and idx < len(query_results):
+                    label = f" ({query_results[idx].get(name_col, '')})"
+                insights.append(
+                    f"Anomaly detected in {col.replace('_', ' ')}: "
+                    f"row {idx + 1}{label} is a {a['type']} "
+                    f"(value {a['value']:,.2f}, mean {a['mean']:,.2f})."
+                )
 
         if not insights:
             insights.append(

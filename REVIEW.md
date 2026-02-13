@@ -1,6 +1,6 @@
 # SQL Query Buddy - Review & Comparison Report
 
-**Date:** February 12, 2026
+**Date:** February 13, 2026 (Re-review after fixes)
 **Deployed App:** https://huggingface.co/spaces/rsprasanna/SqlQueryBuddy
 **Competitor App:** http://3.129.10.17:7860/ (AI Assisted MySQL Query Whisperer)
 **Requirements:** GenAI Bootcamp Contest #1 (Deadline: Feb 15, 2026)
@@ -13,125 +13,173 @@
 |---|-----------|--------|-------|
 | 1 | Conversational Querying | PASS | Natural language to SQL works correctly |
 | 2 | RAG-Powered SQL Generation | PASS | FAISS + TF-IDF embeddings + LangChain, visible in System Status tab |
-| 3 | Query Optimization | PASS | 5 rules with severity levels shown after each query |
-| 4 | AI-Driven Insights | PASS | Business-focused insights generated for every query with results |
+| 3 | Query Optimization | PASS | Multiple rules with severity levels shown after each query |
+| 4 | AI-Driven Insights | PASS | Separate AI Insights panel + inline insights in chat |
 | 5 | Explainable SQL | PASS | Beginner-friendly explanation provided for every query |
-| 6 | Context Retention | PASS | Follow-up queries correctly reference previous results |
+| 6 | Context Retention | **FAIL** | Follow-up query did NOT apply filter - see Issue #1 below |
 | 7 | Chat Interface (Gradio) | PASS | Clean tabbed UI with Chat, Schema, System Status tabs |
-| 8 | SQL Execution + Results | PASS | Executes and displays results in markdown tables |
+| 8 | SQL Execution + Results | PASS | Executes and displays results in markdown tables with $ formatting |
 | 9 | SQL Injection Prevention | PASS | Blocks DROP/DELETE/ALTER with clear error message |
+| 10 | Data Visualization | PASS (NEW) | matplotlib charts generated for multi-row results |
 
 ---
 
-## Functional Test Results
+## New Features Since Last Review (All Verified Working)
 
-All tests run against deployed HuggingFace Spaces app.
+| Feature | Status | Details |
+|---------|--------|---------|
+| Charts/Visualization | ADDED | matplotlib plots for bar charts (regions, categories) and line charts (trends) |
+| AI Insights Panel | ADDED | Separate panel below chart showing business insights |
+| Currency Formatting | ADDED | Values display as $49,315.00 instead of raw 49315 |
+| Expanded Dataset | ADDED | 150 customers, 25 products, 2500 orders, 7500+ items (~10K rows) |
+| 2026 Date Coverage | ADDED | "This quarter" queries now return real data |
+| 10 US Regions | ADDED | Meaningful regional analysis across CA, NY, TX, FL, IL, WA, GA, OH, PA, CO |
+
+---
+
+## Functional Test Results (13 Tests)
+
+All tests run against deployed HuggingFace Spaces app on Feb 13, 2026.
 
 ### Test 1: "Show me the top 5 customers by total purchase amount"
-- **Result:** PASS - Correct SQL, 5 rows returned, insights generated
-- **SQL:** Proper JOIN + GROUP BY + ORDER BY DESC + LIMIT 5
+- **Result:** PASS
+- Top customer: Benjamin Williams at $49,315.00
+- Chart: YES (matplotlib bar chart)
+- Insights: YES (separate panel with business analysis)
 
 ### Test 2: "From the previous result, filter customers from New York only"
-- **Result:** PASS - Context retained, added WHERE region = 'New York', returned John Patel ($230)
+- **Result:** FAIL - Context retention NOT working
+- **Bug:** Returned the SAME top 5 results as Test 1 without applying New York filter
+- SQL generated was identical to Test 1 - no WHERE region = 'New York' clause
+- **This is a regression** - it worked in the previous local version
 
 ### Test 3: "Which product category made the most revenue this quarter?"
-- **Result:** PARTIAL - SQL generated correctly with date('now', 'start of quarter'), but 0 rows because sample data is from 2024
-- **Action needed:** Consider adding recent-dated sample data OR handle gracefully when 0 rows returned
+- **Result:** PASS - Returns Electronics at $154,550.00
+- Chart: None (single row - acceptable)
+- Insights: YES
 
-### Test 4: "Show the trend of monthly revenue over time"
-- **Result:** PASS - 6 months of data returned with trend analysis insights
+### Test 4: "Show total sales per region for 2024"
+- **Result:** PASS - All 10 regions returned with realistic values ($61K-$192K)
+- Chart: YES (matplotlib)
+- New York leads at $192,341.00
 
-### Test 5: SQL Injection ("DROP TABLE customers; SELECT * FROM orders")
+### Test 5: "Show the trend of monthly revenue over time"
+- **Result:** PASS - 38 months of data (Jan 2023 - Feb 2026)
+- Chart: YES (matplotlib line chart)
+- Insights: YES (seasonal fluctuation analysis)
+
+### Test 6: SQL Injection ("DROP TABLE customers; SELECT * FROM orders")
 - **Result:** PASS - Blocked with "Query must be a SELECT statement"
 
-### Test 6: "Show total sales per region for 2024"
-- **Result:** PASS - All 5 regions returned correctly
-
 ### Test 7: Export CSV
-- **Result:** PASS - File generated successfully
+- **Result:** PARTIAL - Returns `{'visible': False}` when no prior query data
+- Should show a user-friendly message like "Run a query first to export"
 
 ### Test 8: Example Query Buttons
-- **Result:** PASS - All 8 buttons trigger correct queries
+- **Result:** PASS - Buttons trigger correct queries with charts
 
 ### Test 9: Clear Chat
-- **Result:** PASS - Resets conversation and input
+- **Result:** PASS - Resets conversation, input, chart, and insights
+
+### Test 10: "Find the average order value for returning customers"
+- **Result:** FAIL - OpenAI API quota exceeded (429 error)
+- This query is NOT covered by mock patterns, so it requires the real LLM
+- Falls through to error instead of graceful fallback
+
+### Test 11: "How many unique products were sold in January?"
+- **Result:** PASS - Returns 25 unique products
+- Correct SQL using COUNT(DISTINCT) + strftime
+
+### Test 12: "How many orders contained more than 3 items?"
+- **Result:** FAIL - OpenAI API quota exceeded (429 error)
+- Same issue as Test 10 - no mock pattern fallback
+
+### Test 13: "List customers who haven't ordered in last 3 months"
+- **Result:** PARTIAL - SQL has logic bug
+- Returns 1000 rows with duplicate customer names (Alice Chen appears 10+ times)
+- Bug: LEFT JOIN matches ALL old orders per customer instead of checking if LATEST order is old
+- Correct approach: subquery with MAX(order_date) per customer
 
 ---
 
 ## Issues to Fix (Priority Order)
 
+### CRITICAL
+
+#### 1. Context Retention BROKEN on Deployed App
+- **Problem:** "From the previous result, filter customers from New York only" returns the SAME results as the original query without applying any filter
+- **Impact:** This is a core contest requirement (Requirement #6) and is currently FAILING
+- **Evidence:** SQL generated is identical to Test 1 - no WHERE clause added
+- **Note:** This worked correctly in the previous local version. Likely a regression in how chat_history is passed to the context manager in the new Gradio message format
+- **Fix:** Check that the Gradio chatbot message format (role/content dicts) is being correctly parsed by ContextManager for follow-up detection
+
+#### 2. OpenAI API Quota Exhausted - No Graceful Fallback
+- **Problem:** Queries not covered by mock patterns (Tests 10, 12) fail with 429 error instead of falling back to mock generator
+- **Impact:** 2 out of 10 contest example queries fail completely with an API error
+- **Fix:** Catch the 429/quota error in the SQL generator and fall back to SQLGeneratorMock. OR add mock patterns for "average order value for returning customers" and "orders with more than 3 items"
+
 ### HIGH PRIORITY
 
-#### 1. No Data Visualization / Charts
-- **Problem:** Competitor has a chart/plot panel. Our app has none.
-- **Impact:** Charts make trend queries (monthly revenue, sales by region) much more compelling visually.
-- **Recommendation:** Add matplotlib/plotly chart generation for:
-  - Bar charts for categorical data (sales per region, revenue by category)
-  - Line charts for time-series data (monthly revenue trend)
-  - Display chart below results in the chat or in a dedicated panel
-- **Competitor reference:** They have a `Plot` component (though it often returns None/broken)
+#### 3. Inactive Customers Query Returns Duplicates
+- **Problem:** Test 13 returns 1000 rows with duplicate names. The LEFT JOIN produces one row per old order instead of one row per customer
+- **Impact:** Results are misleading and look broken
+- **Fix:** The correct SQL should use a subquery: `WHERE customer_id NOT IN (SELECT customer_id FROM orders WHERE order_date >= date('now', '-3 months'))`
 
-#### 2. ~~Small Sample Dataset~~ FIXED
-- **Fixed:** Expanded to 150 customers, 25 products, 2500 orders, 7500+ order items (~10,000 total rows)
-- Date range now spans Jan 2023 - Feb 2026 (covers "this quarter" queries)
-- 10 US regions, 5 product categories, realistic price ranges
+#### 4. ~~No Data Visualization / Charts~~ FIXED
+- Charts now generated using matplotlib for multi-row results
+- Bar charts for categorical data, line charts for trends
+- Single-row results correctly skip chart generation
 
-#### 3. ~~Revenue by Category Returns 0 Rows for "This Quarter"~~ FIXED
-- **Fixed:** Data now includes orders through Feb 2026, so "this quarter" / "last 3 months" queries return results.
-- Tested: "Which product category made the most revenue this quarter?" now returns Electronics at $154,550.
+#### 5. ~~Small Sample Dataset~~ FIXED
+- Expanded to ~10,000 total rows across 4 tables
+- Date range Jan 2023 - Feb 2026
+
+#### 6. ~~Revenue by Category Returns 0 Rows~~ FIXED
+- Now returns Electronics at $154,550.00
+
+#### 7. ~~No Currency Formatting~~ FIXED
+- Values now display as $49,315.00
 
 ### MEDIUM PRIORITY
 
-#### 4. No Currency/Number Formatting
-- **Problem:** Results show raw numbers (1910) instead of formatted values ($1,910.00)
-- **Impact:** Competitor shows `$700,239.90` which looks much more polished
-- **Recommendation:** Format numeric columns with commas and $ prefix in the data preview table
+#### 8. Export CSV Doesn't Work Without Prior Query
+- **Problem:** Returns `{'visible': False}` instead of a user-friendly message
+- **Fix:** Show a toast/message like "Run a query first before exporting"
 
-#### 5. No Query History / Rerun Feature
-- **Problem:** Competitor has a query history panel with rerun capability
-- **Impact:** Users can't review or re-execute past queries
-- **Recommendation:** Add a "History" tab or sidebar showing past queries with a rerun button
-
-#### 6. "This Quarter" / Relative Date Queries
-- **Problem:** The mock SQL generator produces date-relative SQL (e.g., `date('now', '-3 months')`) which fails on old sample data
-- **Impact:** Several contest example questions fail or return empty results
-- **Recommendation:** If using mock mode, generate SQL with absolute dates matching the sample data range, OR expand sample data to current dates
+#### 9. Optimization Suggestions Sometimes Suggest Indexing Function Names
+- **Problem:** For Test 11, suggests "Consider adding indexes on: strftime, m" - these are function names not columns
+- **Fix:** Filter out function names (strftime, date, etc.) from index suggestions
 
 ### LOW PRIORITY
 
-#### 7. Optimization Suggestions Are Generic
-- **Problem:** Most queries get the same "Ensure columns in WHERE and ORDER BY clauses are indexed" suggestion
-- **Impact:** Doesn't demonstrate deep query optimization
-- **Recommendation:** Add more specific suggestions based on query patterns (e.g., suggest specific index names, suggest query rewrites)
-
-#### 8. Insights Not Generated for 0-Row Results
-- **Problem:** When a query returns 0 rows (Test 3), no insights are provided
-- **Impact:** User gets a dead-end response
-- **Recommendation:** Generate insights even for empty results (e.g., "No data found for this quarter. The available data spans Jan-Jun 2024. Try asking about 2024 data.")
+#### 10. No Query History / Rerun Feature
+- Competitor has this but it's not a core requirement
 
 ---
 
-## Comparison: Our App vs Competitor
+## Comparison: Our App vs Competitor (Updated)
 
 ### Features We Have That Competitor Doesn't
+- Data visualization (matplotlib charts) - NOW WORKING
+- Currency formatting ($49,315.00)
 - Export to CSV
 - System Status dashboard (shows DB, LLM, VectorDB, RAG status)
 - 8 clickable example query buttons
 - Visible RAG/FAISS/LangChain integration (key contest requirement)
 - Works without API key (mock fallback mode)
 - Multi-database support (SQLite/PostgreSQL/MySQL)
+- Separate AI Insights panel
 - Docker deployment ready
+- ~10,000 rows of realistic data
 
 ### Features Competitor Has That We Don't
-- **Data visualization (charts/plots)** - biggest gap
-- **Query history with rerun**
-- **Large realistic dataset** (1000+ rows)
-- **Currency formatting** ($700,239.90)
-- Separate panels for SQL, results, insights, explanation (dashboard layout)
+- **Query history with rerun** - nice to have
+- **Larger dataset** (they have more but ours is now substantial at 10K rows)
+- Separate panels layout (dashboard style vs our tabbed chat style)
 
-### Competitor Bugs Found
-- "Which product category made the most revenue this quarter?" returns **blank** (no SQL, no results, no error)
-- Context retention uses "New York" but DB has state abbreviations ("NY") - returns 0 results
+### Competitor Bugs Still Present
+- "Which product category made the most revenue this quarter?" returns **blank**
+- Context retention uses "New York" but DB uses "NY" abbreviations - returns 0 results
 - Charts panel exists but often returns None
 - No visible RAG/VectorDB implementation (key contest requirement missing)
 - No query optimization suggestions
@@ -146,11 +194,20 @@ All tests run against deployed HuggingFace Spaces app.
 | AI Layer | LangChain + GPT-4 (mock fallback) | OpenAI (direct?) | LangChain + LLM |
 | Vector Search | FAISS + InMemory fallback | Not evident | FAISS/Pinecone/Chroma |
 | Backend | Python + Gradio | Python + uvicorn | Python/FastAPI |
-| Database | SQLite | MySQL | SQLite/PostgreSQL/MySQL |
+| Database | SQLite (10K rows) | MySQL (large) | SQLite/PostgreSQL/MySQL |
 | RAG | TF-IDF embeddings + schema retrieval | Not evident | Schema Embeddings + Retrieval |
+| Visualization | matplotlib (bar + line charts) | Plotly (often broken) | Not required but impressive |
 
 ---
 
 ## Summary
 
-**Our app meets all core contest requirements** and has a stronger technical foundation (RAG, FAISS, LangChain all properly implemented). The main gaps are visual polish: no charts, small dataset, and no number formatting. Fixing the HIGH priority items would make the submission significantly more competitive.
+**Our app now covers all core contest requirements EXCEPT context retention is broken on the deployed version.** This is the #1 priority fix.
+
+The app has been significantly improved with charts, expanded data, currency formatting, and a polished UI. The remaining critical issues are:
+
+1. **FIX CONTEXT RETENTION** - follow-up queries don't apply filters (regression)
+2. **FIX API QUOTA FALLBACK** - catch 429 errors and fall back to mock generator
+3. **FIX INACTIVE CUSTOMERS SQL** - duplicate rows due to JOIN logic
+
+Once these 3 issues are fixed, the app will be **stronger than the competitor** on every requirement dimension.
