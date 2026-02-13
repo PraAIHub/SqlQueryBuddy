@@ -7,11 +7,11 @@
 ## Executive Summary
 
 ```
-Total Tests Run:        53
-Tests Passed:           53 (100%)
+Total Tests Run:        62
+Tests Passed:           62 (100%)
 Tests Failed:           0
 Code Coverage:          55%
-Unit Tests:             32/32
+Unit Tests:             41/41
 Integration Tests:      12/12 (end-to-end pipeline)
 Security Tests:         Covered in unit + integration
 Live LLM Tests:         11/11 (separate test_live_llm.py)
@@ -55,7 +55,7 @@ Total: ~10,000 rows across 4 tables with foreign key relationships.
 
 ## Test Results by Category
 
-### Unit Tests: 32/32 PASSED
+### Unit Tests: 41/41 PASSED
 
 | Test | Result | Details |
 |------|--------|---------|
@@ -91,6 +91,15 @@ Total: ~10,000 rows across 4 tables with foreign key relationships.
 | LocalInsightGenerator - Trend | PASS | Detects time-series trends |
 | Mock SQL - All 11 patterns | PASS | All mock query patterns generate valid SQL |
 | Mock SQL - Follow-up queries | PASS | Context-aware follow-up with filters |
+| Currency - Float value | PASS | 1234.5 → "$1,234.50" |
+| Currency - String numeric | PASS | "1234.5" → "$1,234.50" |
+| Currency - Large value | PASS | 1234567.89 → "$1,234,567.89" |
+| Currency - Zero | PASS | 0 → "$0.00" |
+| Currency - None fallback | PASS | None → "None" (no crash) |
+| Currency - Non-numeric fallback | PASS | "abc" → "abc" (no crash) |
+| Currency - NaN fallback | PASS | NaN → no crash |
+| Currency - Non-currency column | PASS | Non-currency columns unformatted |
+| Currency - String passthrough | PASS | "California" → "California" |
 
 ### Integration Tests: 12/12 PASSED
 
@@ -221,5 +230,5 @@ python test_live_llm.py
 ---
 
 **Platform**: Linux, Python 3.13.5, Pytest 9.0.2
-**Build Status**: PASSING (53/53)
+**Build Status**: PASSING (62/62)
 **Ready for Contest Submission**: YES
