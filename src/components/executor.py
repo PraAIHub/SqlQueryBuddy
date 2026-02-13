@@ -252,9 +252,14 @@ class SQLiteDatabase:
             ("External SSD 1TB", "Electronics", 110.00),
             ("Laptop Stand", "Accessories", 55.00),
             ("Desk Organizer", "Office Supplies", 30.00),
+            ("Bluetooth Speaker", "Electronics", 75.00),
+            ("Wireless Charger", "Accessories", 35.00),
+            ("Bookshelf Compact", "Furniture", 150.00),
+            ("Sticky Notes Bulk", "Office Supplies", 12.00),
+            ("Tablet Pro 11", "Electronics", 650.00),
         ]
 
-        # Customers: keep original 5 at IDs 1-5, generate 115 more
+        # Customers: keep original 5 at IDs 1-5, generate 145 more (150 total)
         customers = [
             (1, "Alice Chen", "alice.chen@example.com", "California", "2023-02-01"),
             (2, "John Patel", "john.patel@example.com", "New York", "2023-05-15"),
@@ -263,14 +268,14 @@ class SQLiteDatabase:
             (5, "Sofia Khan", "sofia.khan@example.com", "Illinois", "2023-04-10"),
         ]
         used_emails = {c[2] for c in customers}
-        for i in range(6, 121):
+        for i in range(6, 151):
             first = rng.choice(first_names)
             last = rng.choice(last_names)
             email = f"{first.lower()}.{last.lower()}{i}@example.com"
             while email in used_emails:
                 email = f"{first.lower()}.{last.lower()}{i}x@example.com"
             used_emails.add(email)
-            signup = date(2022, 1, 1) + timedelta(days=rng.randint(0, 1095))
+            signup = date(2022, 1, 1) + timedelta(days=rng.randint(0, 1460))
             customers.append(
                 (i, f"{first} {last}", email, rng.choice(regions), signup.isoformat())
             )
@@ -293,13 +298,16 @@ class SQLiteDatabase:
         price_map = {p[0]: p[3] for p in products}
         num_products = len(products)
 
-        # Orders (600) and Order Items (~1500) generated together for consistency
+        # Orders (2500) and Order Items (~6500) generated together for consistency
         orders = []
         order_items = []
         item_id = 1
-        for order_id in range(101, 701):
-            cust_id = rng.randint(1, 120)
-            order_date = date(2023, 1, 1) + timedelta(days=rng.randint(0, 1060))
+        # Date range: Jan 2023 to Feb 2026 (1132 days)
+        date_start = date(2023, 1, 1)
+        date_range_days = (date(2026, 2, 12) - date_start).days
+        for order_id in range(101, 2601):
+            cust_id = rng.randint(1, 150)
+            order_date = date_start + timedelta(days=rng.randint(0, date_range_days))
             num_items = rng.randint(1, 5)
             order_total = 0.0
             for _ in range(num_items):
