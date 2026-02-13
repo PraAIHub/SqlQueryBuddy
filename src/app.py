@@ -109,7 +109,8 @@ class QueryBuddyApp:
             if not result.get("success", False):
                 error_msg = result.get("error", "Unknown error")
                 response = f"❌ Error generating SQL: {error_msg}"
-                chat_history.append((user_message, response))
+                chat_history.append({"role": "user", "content": user_message})
+                chat_history.append({"role": "assistant", "content": response})
                 return "", chat_history
 
             generated_sql = result.get("generated_sql", "")
@@ -120,7 +121,8 @@ class QueryBuddyApp:
             if not exec_result.get("success", False):
                 error_msg = exec_result.get("error", "Query execution failed")
                 response = f"❌ Error executing query: {error_msg}"
-                chat_history.append((user_message, response))
+                chat_history.append({"role": "user", "content": user_message})
+                chat_history.append({"role": "assistant", "content": response})
                 return "", chat_history
 
             # Format response
@@ -176,12 +178,14 @@ class QueryBuddyApp:
                 generated_sql=generated_sql,
             )
 
-            chat_history.append((user_message, response_text))
+            chat_history.append({"role": "user", "content": user_message})
+            chat_history.append({"role": "assistant", "content": response_text})
             return "", chat_history
 
         except Exception as e:
             error_response = f"❌ Unexpected error: {str(e)}"
-            chat_history.append((user_message, error_response))
+            chat_history.append({"role": "user", "content": user_message})
+            chat_history.append({"role": "assistant", "content": error_response})
             return "", chat_history
 
     @staticmethod

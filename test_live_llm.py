@@ -12,7 +12,14 @@ from src.config import settings
 def run_query(app, query, chat_history):
     """Run a single query and print results."""
     _, updated_history = app.process_query(query, chat_history)
-    last_response = updated_history[-1][1] if updated_history else "No response"
+    # Messages format: list of {"role": ..., "content": ...}
+    last_response = "No response"
+    if updated_history:
+        last = updated_history[-1]
+        if isinstance(last, dict):
+            last_response = last.get("content", "No response")
+        else:
+            last_response = last[1] if isinstance(last, (list, tuple)) else str(last)
     return updated_history, last_response
 
 
