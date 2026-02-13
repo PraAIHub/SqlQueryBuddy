@@ -16,10 +16,12 @@
 - [x] 51 tests passing
 - [x] Fix missing `Tuple` import in app.py (review finding)
 
-## Pending - Tomorrow (Feb 12)
-- [ ] Configure and test with OpenAI API key
-- [ ] Test all 8 demo queries with real LLM
-- [ ] Test multi-turn conversation with real LLM
+## Completed - Feb 12
+- [x] Configure and test with OpenAI API key
+- [x] Test all 8 demo queries with real LLM (8/8 passing)
+- [x] Test multi-turn conversation with real LLM (3/3 passing)
+- [x] Fix SQLite syntax in LLM prompt (no MySQL DATE_SUB/EXTRACT)
+- [x] Fix SQL comment stripping before validation
 - [ ] Choose hosting platform and deploy
 - [ ] Verify deployed demo end-to-end
 

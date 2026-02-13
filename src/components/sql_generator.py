@@ -34,9 +34,12 @@ class SQLPromptBuilder:
         "1. Generate a valid SQL query that answers the user's question\n"
         "2. Use ONLY the tables and columns from the schema provided\n"
         "3. Never use subqueries if a simpler query works\n"
-        "4. Add comments explaining complex parts\n"
-        "5. Validate the query syntax before returning\n\n"
-        "Return ONLY the SQL query, no explanations."
+        "4. Use SQLite syntax ONLY. Do NOT use MySQL or PostgreSQL functions.\n"
+        "   - Use date('now', '-3 months') instead of DATE_SUB/INTERVAL\n"
+        "   - Use strftime('%Y', col) instead of EXTRACT(YEAR FROM col)\n"
+        "   - Use strftime('%m', col) instead of EXTRACT(MONTH FROM col)\n"
+        "5. Return ONLY the raw SQL query. No comments, no explanations, "
+        "no markdown. The response must start with SELECT or WITH."
     )
 
     # LangChain PromptTemplate for SQL generation
@@ -173,6 +176,10 @@ class SQLGenerator:
                 if generated_sql.startswith("sql"):
                     generated_sql = generated_sql[3:]
                 generated_sql = generated_sql.strip()
+
+            # Strip leading SQL comments (-- or /* */)
+            generated_sql = re.sub(r"^\s*(--[^\n]*\n\s*)*", "", generated_sql).strip()
+            generated_sql = re.sub(r"^\s*/\*.*?\*/\s*", "", generated_sql, flags=re.DOTALL).strip()
 
             # Validate
             is_valid, error_msg = self.validator.validate(generated_sql)
