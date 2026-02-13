@@ -241,12 +241,15 @@ class QueryBuddyApp:
                 msg = gr.Textbox(
                     label="Your question",
                     placeholder="e.g., 'Show me the top 5 customers by total purchase amount'",
-                    lines=2,
+                    lines=1,
+                    scale=4,
                 )
-                clear = gr.Button("Clear Chat")
+                submit_btn = gr.Button("Send", variant="primary", scale=1)
+                clear = gr.Button("Clear Chat", scale=1)
 
             # Set up event handlers
             msg.submit(self.process_query, [msg, chatbot], [msg, chatbot])
+            submit_btn.click(self.process_query, [msg, chatbot], [msg, chatbot])
 
             def clear_chat():
                 self.context_manager.reset()
