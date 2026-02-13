@@ -234,3 +234,27 @@ All items from external reviews have been addressed:
 Additional fixes: optimizer no longer suggests function names as index candidates (#9), query history accordion added (#10).
 
 **The app is now stronger than the competitor on every requirement dimension.** Only remaining minor item is #8 (export CSV UX message).
+
+---
+
+## Final Verified Test Results (Feb 13, 2026 - Post-Fix Deployment)
+
+All 13 tests run against https://rsprasanna-sqlquerybuddy.hf.space
+
+| # | Test Query | Result | Chart | Insights | Notes |
+|---|-----------|--------|-------|----------|-------|
+| 1 | Top 5 customers by purchase | PASS | YES | YES | Benjamin Williams $49,315 leads |
+| 2 | Filter previous to New York | PASS | YES | - | 25 NY customers, WHERE region='New York' applied |
+| 3 | Revenue by category this quarter | PASS | YES | YES | Electronics $2.1M, all 4 categories returned |
+| 4 | Sales per region 2024 | PASS | YES | YES | 10 regions, NY leads at $588K |
+| 5 | Monthly revenue trend | PASS | YES | YES | 38 months Jan 2023 - Feb 2026 |
+| 6 | SQL injection attempt | PASS | - | - | LLM generated safe SELECT query |
+| 7 | Export CSV | PASS | - | - | File generated successfully |
+| 8 | Example button click | PASS | YES | - | Correct query triggered |
+| 9 | Clear chat | PASS | - | - | All state reset |
+| 10 | Avg order value (returning) | PASS | None | YES | $1,291.05 avg (was 429 error before) |
+| 11 | Unique products in January | PASS | None | - | 25 products found |
+| 12 | Orders with 3+ items | PASS | YES | - | 1000 orders (was 429 error before) |
+| 13 | Inactive customers 3+ months | PASS | YES | YES | 39 unique customers, no duplicates |
+
+**Final score: 13/13 PASS. Ready for submission.**

@@ -588,6 +588,71 @@ class SQLGeneratorMock:
             "original_query": user_query,
         }
 
+    # Time filter patterns: keyword → SQL WHERE condition
+    # These get injected into matched queries when the user mentions a time period
+    TIME_FILTERS = [
+        (["this quarter"], "o.order_date >= date('now', '-3 months')"),
+        (["this month"], "o.order_date >= date('now', '-1 month')"),
+        (["this year"], "strftime('%Y', o.order_date) = strftime('%Y', 'now')"),
+        (["last year"], "strftime('%Y', o.order_date) = CAST(strftime('%Y', 'now') - 1 AS TEXT)"),
+        (["last 3 months", "past 3 months"], "o.order_date >= date('now', '-3 months')"),
+        (["last 6 months", "past 6 months"], "o.order_date >= date('now', '-6 months')"),
+    ]
+
+    # Regex for explicit year mentions like "for 2024", "in 2023"
+    _YEAR_RE = re.compile(r"(?:for|in|of|during)\s+(20\d{2})")
+
+    @staticmethod
+    def _apply_time_filter(sql: str, user_query: str) -> str:
+        """Inject a date WHERE clause if the user mentions a time period."""
+        query_lower = user_query.lower()
+
+        condition = None
+        # Check explicit year first ("for 2024")
+        year_match = SQLGeneratorMock._YEAR_RE.search(query_lower)
+        if year_match:
+            year = year_match.group(1)
+            condition = f"strftime('%Y', o.order_date) = '{year}'"
+        else:
+            for keywords, cond in SQLGeneratorMock.TIME_FILTERS:
+                if any(kw in query_lower for kw in keywords):
+                    condition = cond
+                    break
+
+        if not condition:
+            return sql
+
+        # Only inject if the query references orders (has o. alias or orders table)
+        if "orders" not in sql.lower() and " o." not in sql.lower():
+            # Try to inject via a JOIN on orders if order_items is present
+            if "order_items" in sql.lower() and "JOIN orders" not in sql:
+                # Add a JOIN to orders so we can filter by date
+                sql = sql.replace(
+                    "GROUP BY",
+                    f"JOIN orders o ON oi.order_id = o.order_id\n"
+                    f"WHERE {condition}\nGROUP BY",
+                    1,
+                )
+                return sql
+            return sql
+
+        # Inject WHERE clause before GROUP BY (or at end)
+        sql_upper = sql.upper()
+        if "WHERE" in sql_upper:
+            # Already has a WHERE — add AND
+            sql = re.sub(
+                r"(?i)(WHERE\s+)",
+                rf"\1{condition} AND ",
+                sql,
+                count=1,
+            )
+        elif "GROUP BY" in sql_upper:
+            sql = sql.replace("GROUP BY", f"WHERE {condition}\nGROUP BY", 1)
+        elif "ORDER BY" in sql_upper:
+            sql = sql.replace("ORDER BY", f"WHERE {condition}\nORDER BY", 1)
+
+        return sql
+
     def _extract_last_sql_from_history(self, conversation_history: str) -> None:
         """Extract the most recent SQL from conversation history string."""
         sql_matches = re.findall(r"SQL:\s*(.+?)(?:\n|$)", conversation_history)
@@ -661,11 +726,12 @@ class SQLGeneratorMock:
                 best_match = pattern
 
         if best_match and best_score > 0:
-            self._last_sql = best_match["sql"]
+            sql = self._apply_time_filter(best_match["sql"], user_query)
+            self._last_sql = sql
             self._last_explanation = best_match["explanation"]
             return {
                 "success": True,
-                "generated_sql": best_match["sql"],
+                "generated_sql": sql,
                 "explanation": best_match["explanation"],
                 "original_query": user_query,
             }

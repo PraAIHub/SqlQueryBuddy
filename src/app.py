@@ -94,15 +94,24 @@ class QueryBuddyApp:
 
     # Column name hints that indicate monetary values
     CURRENCY_HINTS = {
-        "price", "total", "revenue", "amount", "spent", "subtotal",
+        "price", "revenue", "amount", "spent", "subtotal",
         "total_spent", "total_sales", "total_revenue", "total_amount",
         "avg_order_value", "monthly_revenue",
+    }
+
+    # Column name hints that are NOT monetary (counts, IDs, quantities)
+    CURRENCY_EXCLUDE = {
+        "count", "orders", "customers", "products", "items", "quantity",
+        "unique", "number", "num", "id",
     }
 
     @staticmethod
     def _format_cell(column_name: str, value) -> str:
         """Format a cell value; apply $X,XXX.XX for currency columns."""
         col_lower = column_name.lower()
+        # Exclude count-like columns even if they contain a currency hint word
+        if any(ex in col_lower for ex in QueryBuddyApp.CURRENCY_EXCLUDE):
+            return str(value)
         if any(hint in col_lower for hint in QueryBuddyApp.CURRENCY_HINTS):
             try:
                 return f"${float(value):,.2f}"
@@ -204,6 +213,19 @@ class QueryBuddyApp:
             return "", chat_history, None, "", self._format_history(), "", ""
 
         user_message = user_message.strip()
+
+        # Reject obvious SQL injection / destructive intent before LLM processing
+        _dangerous = ["drop ", "delete ", "truncate ", "alter ", "update ", "insert "]
+        if any(kw in user_message.lower() for kw in _dangerous):
+            rejection = (
+                "**Query rejected:** Your input contains a destructive SQL keyword "
+                f"(`{next(kw.strip() for kw in _dangerous if kw in user_message.lower()).upper()}`). "
+                "Only SELECT queries are allowed for safety.\n\n"
+                "Try asking a data question instead, e.g. *'Show me the top 5 customers by spending'*."
+            )
+            chat_history.append({"role": "user", "content": user_message})
+            chat_history.append({"role": "assistant", "content": rejection})
+            return "", chat_history, None, "", self._format_history(), "", ""
 
         try:
             # Parse user input with NLP
