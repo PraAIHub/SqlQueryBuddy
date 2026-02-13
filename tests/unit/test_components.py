@@ -236,7 +236,7 @@ class TestLocalInsightGenerator:
     def test_empty_data(self):
         gen = LocalInsightGenerator()
         result = gen.generate_insights([], "query")
-        assert "No data" in result
+        assert "No matching data found" in result
 
     def test_top_performer_insight(self):
         gen = LocalInsightGenerator()

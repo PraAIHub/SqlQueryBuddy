@@ -1,4 +1,5 @@
 """Query optimization and performance analysis"""
+import re
 from typing import Dict, List, Optional, Any
 
 
@@ -12,6 +13,9 @@ class QueryOptimizer:
             self._check_missing_indexes,
             self._check_join_optimization,
             self._check_subquery_opportunity,
+            self._check_group_by_without_index,
+            self._check_unbounded_result,
+            self._check_function_on_indexed_column,
         ]
 
     def analyze(self, sql_query: str) -> Dict[str, Any]:
@@ -30,6 +34,18 @@ class QueryOptimizer:
         }
 
     @staticmethod
+    def _extract_columns(clause_text: str) -> List[str]:
+        """Extract column names from a SQL clause."""
+        # Match word.word (table.column) or standalone words, skip SQL keywords
+        skip = {
+            "AND", "OR", "NOT", "IN", "IS", "NULL", "LIKE", "BETWEEN",
+            "ASC", "DESC", "AS", "ON", "BY", "FROM", "JOIN", "WHERE",
+            "GROUP", "ORDER", "HAVING", "LIMIT", "OFFSET", "SELECT",
+        }
+        tokens = re.findall(r"(?:\w+\.)?(\w+)", clause_text)
+        return [t for t in tokens if t.upper() not in skip and not t.isdigit()]
+
+    @staticmethod
     def _check_missing_where_clause(query: str) -> Optional[Dict[str, str]]:
         """Check if query is missing WHERE clause"""
         query_upper = query.upper()
@@ -39,8 +55,8 @@ class QueryOptimizer:
                 return {
                     "type": "performance",
                     "severity": "high",
-                    "suggestion": "Add a WHERE clause to filter results and improve performance",
-                    "example": "Add 'WHERE column = value' to limit the result set",
+                    "suggestion": "Add a WHERE clause or LIMIT to avoid scanning the entire table",
+                    "example": "Add 'WHERE column = value' or 'LIMIT 100' to bound the result set",
                 }
 
         return None
@@ -60,32 +76,48 @@ class QueryOptimizer:
 
     @staticmethod
     def _check_missing_indexes(query: str) -> Optional[Dict[str, str]]:
-        """Check for potential index opportunities"""
+        """Suggest specific indexes based on WHERE and ORDER BY columns"""
         query_upper = query.upper()
+        index_cols = []
 
-        if "WHERE" in query_upper or "ORDER BY" in query_upper:
+        # Extract WHERE columns
+        where_match = re.search(r"WHERE\s+(.+?)(?:GROUP|ORDER|LIMIT|HAVING|$)", query_upper, re.DOTALL)
+        if where_match:
+            index_cols.extend(QueryOptimizer._extract_columns(where_match.group(1)))
+
+        # Extract ORDER BY columns
+        order_match = re.search(r"ORDER\s+BY\s+(.+?)(?:LIMIT|OFFSET|$)", query_upper, re.DOTALL)
+        if order_match:
+            index_cols.extend(QueryOptimizer._extract_columns(order_match.group(1)))
+
+        if index_cols:
+            unique_cols = list(dict.fromkeys(c.lower() for c in index_cols))[:4]
+            col_list = ", ".join(unique_cols)
             return {
                 "type": "optimization",
                 "severity": "medium",
-                "suggestion": "Ensure columns in WHERE and ORDER BY clauses are indexed",
-                "example": "Create indexes on frequently filtered and sorted columns",
+                "suggestion": f"Consider adding indexes on: {col_list}",
+                "example": f"CREATE INDEX idx_{unique_cols[0]} ON table({unique_cols[0]})",
             }
 
         return None
 
     @staticmethod
     def _check_join_optimization(query: str) -> Optional[Dict[str, str]]:
-        """Check for potential JOIN optimizations"""
+        """Check for potential JOIN optimizations with specific advice"""
         query_upper = query.upper()
 
         if "JOIN" in query_upper:
             join_count = query_upper.count("JOIN")
-            if join_count > 3:
+            # Extract join columns
+            on_matches = re.findall(r"ON\s+(\w+\.\w+)\s*=\s*(\w+\.\w+)", query, re.IGNORECASE)
+            if join_count >= 2 and on_matches:
+                join_cols = [f"{m[0]}={m[1]}" for m in on_matches[:3]]
                 return {
                     "type": "performance",
-                    "severity": "medium",
-                    "suggestion": f"Consider refactoring {join_count} joins",
-                    "example": "Complex joins can impact performance. Review if all joins are necessary",
+                    "severity": "medium" if join_count <= 3 else "high",
+                    "suggestion": f"Ensure join columns are indexed ({', '.join(join_cols)})",
+                    "example": "Index foreign key columns used in ON clauses for faster joins",
                 }
 
         return None
@@ -98,9 +130,57 @@ class QueryOptimizer:
                 "type": "readability",
                 "severity": "low",
                 "suggestion": "Complex nested queries might benefit from CTEs (WITH clause)",
-                "example": "Use 'WITH temp_table AS (SELECT ...) SELECT * FROM temp_table'",
+                "example": "Use 'WITH temp AS (SELECT ...) SELECT * FROM temp'",
             }
 
+        return None
+
+    @staticmethod
+    def _check_group_by_without_index(query: str) -> Optional[Dict[str, str]]:
+        """Check GROUP BY columns for index suggestions"""
+        group_match = re.search(r"GROUP\s+BY\s+(.+?)(?:HAVING|ORDER|LIMIT|$)", query.upper(), re.DOTALL)
+        if group_match:
+            group_cols = QueryOptimizer._extract_columns(group_match.group(1))
+            if group_cols:
+                cols = [c.lower() for c in group_cols[:3]]
+                return {
+                    "type": "optimization",
+                    "severity": "low",
+                    "suggestion": f"Index GROUP BY columns ({', '.join(cols)}) to speed up aggregation",
+                    "example": f"CREATE INDEX idx_group ON table({', '.join(cols)})",
+                }
+        return None
+
+    @staticmethod
+    def _check_unbounded_result(query: str) -> Optional[Dict[str, str]]:
+        """Check for queries that return potentially large unbounded results"""
+        query_upper = query.upper()
+        has_agg = any(fn in query_upper for fn in ["COUNT(", "SUM(", "AVG(", "MAX(", "MIN("])
+        if "LIMIT" not in query_upper and not has_agg and "GROUP BY" not in query_upper:
+            if "WHERE" in query_upper:
+                return {
+                    "type": "performance",
+                    "severity": "low",
+                    "suggestion": "Add LIMIT to prevent returning unexpectedly large result sets",
+                    "example": "Append 'LIMIT 1000' to cap the number of rows returned",
+                }
+        return None
+
+    @staticmethod
+    def _check_function_on_indexed_column(query: str) -> Optional[Dict[str, str]]:
+        """Detect functions applied to columns in WHERE (prevents index usage)"""
+        where_match = re.search(r"WHERE\s+(.+?)(?:GROUP|ORDER|LIMIT|HAVING|$)", query.upper(), re.DOTALL)
+        if where_match:
+            clause = where_match.group(1)
+            fn_patterns = ["STRFTIME(", "DATE(", "LOWER(", "UPPER(", "SUBSTR(", "CAST("]
+            found = [fn.rstrip("(") for fn in fn_patterns if fn in clause]
+            if found:
+                return {
+                    "type": "optimization",
+                    "severity": "medium",
+                    "suggestion": f"Function ({', '.join(found)}) in WHERE clause prevents index usage",
+                    "example": "Use computed/stored columns or restructure the filter to avoid wrapping indexed columns in functions",
+                }
         return None
 
     @staticmethod
@@ -114,5 +194,3 @@ class QueryOptimizer:
             return "needs_optimization"
 
         return "good"
-
-

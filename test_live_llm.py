@@ -11,7 +11,7 @@ from src.config import settings
 
 def run_query(app, query, chat_history):
     """Run a single query and print results."""
-    _, updated_history, _chart, _insights = app.process_query(query, chat_history)
+    _, updated_history, _chart, _insights, _hist = app.process_query(query, chat_history)
     # Messages format: list of {"role": ..., "content": ...}
     last_response = "No response"
     if updated_history:

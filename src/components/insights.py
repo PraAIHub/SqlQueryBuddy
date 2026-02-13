@@ -34,7 +34,7 @@ class InsightGenerator:
     ) -> str:
         """Generate natural language insights from results"""
         if not query_results:
-            return "No data available to generate insights."
+            return self._empty_result_insight(user_query)
 
         # Prepare data summary
         data_summary = self._summarize_results(query_results)
@@ -66,6 +66,19 @@ Provide 2-3 key insights or patterns from this data. Be specific and actionable.
             return response.content.strip()
         except Exception:
             return "Unable to generate insights from the results."
+
+    @staticmethod
+    def _empty_result_insight(user_query: str) -> str:
+        """Provide helpful guidance when a query returns no results."""
+        hints = []
+        query_lower = user_query.lower()
+        if any(w in query_lower for w in ["this quarter", "this month", "this year", "today", "recent"]):
+            hints.append("The date filter may not match available data. Try broadening the time range (e.g., '2024' or 'last year').")
+        if any(w in query_lower for w in ["last 3 months", "last month", "past week"]):
+            hints.append("Try a wider date range such as 'in 2024' or 'in the last year'.")
+        if not hints:
+            hints.append("Try rephrasing your query or broadening your filters.")
+        return "No matching data found. " + " ".join(hints)
 
     @staticmethod
     def _summarize_results(results: List[Dict[str, Any]]) -> str:
@@ -205,7 +218,7 @@ class LocalInsightGenerator:
     ) -> str:
         """Generate business insights from query results using local analysis."""
         if not query_results:
-            return "No data available to generate insights."
+            return InsightGenerator._empty_result_insight(user_query)
 
         insights = []
         count = len(query_results)

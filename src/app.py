@@ -88,6 +88,9 @@ class QueryBuddyApp:
         self._last_results = []
         self._last_sql = ""
 
+        # Query history: list of {"query": ..., "sql": ..., "rows": int}
+        self._query_history = []
+
     # Column name hints that indicate monetary values
     CURRENCY_HINTS = {
         "price", "total", "revenue", "amount", "spent", "subtotal",
@@ -178,13 +181,26 @@ class QueryBuddyApp:
         fig.tight_layout()
         return fig
 
+    def _format_history(self) -> str:
+        """Format query history as markdown."""
+        if not self._query_history:
+            return "*No queries yet.*"
+        lines = []
+        for i, entry in enumerate(reversed(self._query_history), 1):
+            lines.append(
+                f"**{i}.** {entry['query']}\n"
+                f"   `{entry['sql'][:80]}{'...' if len(entry['sql']) > 80 else ''}`"
+                f" — {entry['rows']} rows"
+            )
+        return "\n\n".join(lines)
+
     def process_query(
         self, user_message: str, chat_history: list
-    ) -> Tuple[str, list, Optional[matplotlib.figure.Figure], str]:
-        """Process user query and return response, chart, and insights"""
+    ) -> Tuple[str, list, Optional[matplotlib.figure.Figure], str, str]:
+        """Process user query and return response, chart, insights, and history"""
         # Validate empty input
         if not user_message or not user_message.strip():
-            return "", chat_history, None, ""
+            return "", chat_history, None, "", self._format_history()
 
         user_message = user_message.strip()
 
@@ -228,7 +244,7 @@ class QueryBuddyApp:
                 )
                 chat_history.append({"role": "user", "content": user_message})
                 chat_history.append({"role": "assistant", "content": response})
-                return "", chat_history, None, ""
+                return "", chat_history, None, "", self._format_history()
 
             generated_sql = result.get("generated_sql", "")
 
@@ -245,12 +261,17 @@ class QueryBuddyApp:
                 )
                 chat_history.append({"role": "user", "content": user_message})
                 chat_history.append({"role": "assistant", "content": response})
-                return "", chat_history, None, ""
+                return "", chat_history, None, "", self._format_history()
 
-            # Store results for export
+            # Store results for export and history
             data = exec_result.get("data", [])
             self._last_results = data
             self._last_sql = generated_sql
+            self._query_history.append({
+                "query": user_message,
+                "sql": generated_sql,
+                "rows": exec_result.get("row_count", 0),
+            })
 
             # Format response
             response_lines = [
@@ -289,10 +310,7 @@ class QueryBuddyApp:
                     )
 
             # Generate AI insights (displayed in dedicated panel)
-            insights_md = ""
-            if data:
-                insights = self.insight_generator.generate_insights(data, user_message)
-                insights_md = insights
+            insights_md = self.insight_generator.generate_insights(data, user_message)
 
             # Update context
             response_text = "\n".join(response_lines)
@@ -307,7 +325,7 @@ class QueryBuddyApp:
 
             chat_history.append({"role": "user", "content": user_message})
             chat_history.append({"role": "assistant", "content": response_text})
-            return "", chat_history, chart, insights_md
+            return "", chat_history, chart, insights_md, self._format_history()
 
         except Exception as e:
             error_response = (
@@ -316,7 +334,7 @@ class QueryBuddyApp:
             )
             chat_history.append({"role": "user", "content": user_message})
             chat_history.append({"role": "assistant", "content": error_response})
-            return "", chat_history, None, ""
+            return "", chat_history, None, "", self._format_history()
 
     @staticmethod
     def _format_schema(schema: dict) -> str:
@@ -491,6 +509,11 @@ class QueryBuddyApp:
                             "Customers inactive 3+ months", size="sm"
                         )
 
+                    with gr.Accordion("Query History", open=False):
+                        history_output = gr.Markdown(
+                            value="*No queries yet.*",
+                        )
+
                 # Tab 2: Schema Explorer
                 with gr.Tab("Schema & Sample Data"):
                     gr.Markdown("## Database Schema")
@@ -515,15 +538,16 @@ class QueryBuddyApp:
                     )
 
             # Event handlers: Enter key and Send button both submit
-            query_outputs = [msg, chatbot, chart_output, insights_output]
+            query_outputs = [msg, chatbot, chart_output, insights_output, history_output]
             msg.submit(self.process_query, [msg, chatbot], query_outputs)
             submit_btn.click(self.process_query, [msg, chatbot], query_outputs)
 
             def clear_chat():
                 self.context_manager.reset()
-                return [], "", None, "*Run a query to see AI-powered insights here.*"
+                self._query_history.clear()
+                return [], "", None, "*Run a query to see AI-powered insights here.*", "*No queries yet.*"
 
-            clear.click(clear_chat, outputs=[chatbot, msg, chart_output, insights_output])
+            clear.click(clear_chat, outputs=[chatbot, msg, chart_output, insights_output, history_output])
 
             def handle_export():
                 path = self.export_csv()
