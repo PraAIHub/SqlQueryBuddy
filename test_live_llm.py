@@ -65,7 +65,7 @@ def main():
         chat_history = []  # fresh context per query
         try:
             history, response = run_query(app, query, chat_history)
-            is_success = "✅" in response
+            is_success = "Generated SQL" in response and "Error" not in response
             status = "PASS" if is_success else "FAIL"
             if is_success:
                 passed += 1
@@ -103,7 +103,7 @@ def main():
         print("-" * 50)
         try:
             chat_history, response = run_query(app2, query, chat_history)
-            is_success = "✅" in response
+            is_success = "Generated SQL" in response and "Error" not in response
             status = "PASS" if is_success else "FAIL"
             if is_success:
                 mt_passed += 1

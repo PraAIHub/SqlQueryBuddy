@@ -33,8 +33,13 @@ class QueryBuddyApp:
         # Initialize NLP and context management
         self.context_manager = ContextManager()
 
+        # Track LLM mode for status display
+        self.using_real_llm = bool(
+            settings.openai_api_key and settings.openai_api_key != ""
+        )
+
         # Initialize SQL generator
-        if settings.openai_api_key and settings.openai_api_key != "":
+        if self.using_real_llm:
             self.sql_generator = SQLGenerator(
                 openai_api_key=settings.openai_api_key, model=settings.openai_model
             )
@@ -61,7 +66,7 @@ class QueryBuddyApp:
         self.rag_system.initialize_schema(schema)
 
         # Initialize insights generator (local fallback if no API key)
-        if settings.openai_api_key and settings.openai_api_key != "":
+        if self.using_real_llm:
             self.insight_generator = InsightGenerator(
                 openai_api_key=settings.openai_api_key, model=settings.openai_model
             )
@@ -75,6 +80,12 @@ class QueryBuddyApp:
         self, user_message: str, chat_history: list
     ) -> Tuple[str, list]:
         """Process user query and return response"""
+        # Validate empty input
+        if not user_message or not user_message.strip():
+            return "", chat_history
+
+        user_message = user_message.strip()
+
         try:
             # Parse user input with NLP
             parsed = self.context_manager.process_input(user_message)
@@ -108,7 +119,11 @@ class QueryBuddyApp:
 
             if not result.get("success", False):
                 error_msg = result.get("error", "Unknown error")
-                response = f"❌ Error generating SQL: {error_msg}"
+                response = (
+                    f"**Error generating SQL:** {error_msg}\n\n"
+                    "Please try rephrasing your question. "
+                    "Example: *'Show me the top 5 customers by total purchase amount'*"
+                )
                 chat_history.append({"role": "user", "content": user_message})
                 chat_history.append({"role": "assistant", "content": response})
                 return "", chat_history
@@ -120,16 +135,19 @@ class QueryBuddyApp:
 
             if not exec_result.get("success", False):
                 error_msg = exec_result.get("error", "Query execution failed")
-                response = f"❌ Error executing query: {error_msg}"
+                response = (
+                    f"**SQL Generated:**\n```sql\n{generated_sql}\n```\n\n"
+                    f"**Execution Error:** {error_msg}\n\n"
+                    "The SQL was generated but failed to execute. "
+                    "Try rephrasing your question."
+                )
                 chat_history.append({"role": "user", "content": user_message})
                 chat_history.append({"role": "assistant", "content": response})
                 return "", chat_history
 
             # Format response
             response_lines = [
-                "✅ Query executed successfully!",
-                "",
-                f"**Generated SQL:**",
+                "**Generated SQL:**",
                 f"```sql\n{generated_sql}\n```",
                 "",
                 f"**Explanation:** {result.get('explanation', 'N/A')}",
@@ -144,25 +162,24 @@ class QueryBuddyApp:
             data = exec_result.get("data", [])
             if data:
                 response_lines.append("\n**Data Preview:**")
-                # Simple table formatting
-                if data:
-                    headers = list(data[0].keys())
-                    response_lines.append("|" + "|".join(headers) + "|")
-                    response_lines.append("|" + "|".join(["---"] * len(headers)) + "|")
-                    for row in data[:5]:  # Show first 5 rows
-                        values = [str(row.get(h, "")) for h in headers]
-                        response_lines.append("|" + "|".join(values) + "|")
+                headers = list(data[0].keys())
+                response_lines.append("|" + "|".join(headers) + "|")
+                response_lines.append("|" + "|".join(["---"] * len(headers)) + "|")
+                for row in data[:10]:
+                    values = [str(row.get(h, "")) for h in headers]
+                    response_lines.append("|" + "|".join(values) + "|")
 
-                    if len(data) > 5:
-                        response_lines.append(f"\n*(Showing 5 of {len(data)} rows)*")
+                if len(data) > 10:
+                    response_lines.append(f"\n*(Showing 10 of {len(data)} rows)*")
 
             # Add optimization suggestions
             opt_result = self.optimizer.analyze(generated_sql)
             if opt_result.get("suggestions"):
                 response_lines.append("\n**Optimization Suggestions:**")
-                for i, suggestion in enumerate(opt_result["suggestions"], 1):
+                for suggestion in opt_result["suggestions"]:
                     response_lines.append(
-                        f"- {suggestion.get('suggestion', '')} *(severity: {suggestion.get('severity', 'low')})*"
+                        f"- {suggestion.get('suggestion', '')} "
+                        f"*(severity: {suggestion.get('severity', 'low')})*"
                     )
 
             # Add AI-driven insights (uses LLM if available, local analysis otherwise)
@@ -183,7 +200,10 @@ class QueryBuddyApp:
             return "", chat_history
 
         except Exception as e:
-            error_response = f"❌ Unexpected error: {str(e)}"
+            error_response = (
+                f"**Unexpected error:** {str(e)}\n\n"
+                "Please try again or rephrase your question."
+            )
             chat_history.append({"role": "user", "content": user_message})
             chat_history.append({"role": "assistant", "content": error_response})
             return "", chat_history
@@ -210,44 +230,147 @@ class QueryBuddyApp:
 
         return "\n".join(lines)
 
+    def _build_schema_explorer_text(self) -> str:
+        """Build schema overview text for the schema explorer tab"""
+        schema = self.db_connection.get_schema()
+        lines = []
+        for table_name, table_info in schema.items():
+            lines.append(f"### {table_name}")
+            columns = table_info.get("columns", {})
+            lines.append("| Column | Type |")
+            lines.append("|--------|------|")
+            for col_name, col_info in columns.items():
+                col_type = col_info.get("type", "unknown")
+                lines.append(f"| {col_name} | {col_type} |")
+            for fk in table_info.get("foreign_keys", []):
+                cols = ", ".join(fk["column"])
+                ref_cols = ", ".join(fk["references_column"])
+                lines.append(
+                    f"\n*Foreign Key:* `{cols}` -> "
+                    f"`{fk['references_table']}({ref_cols})`"
+                )
+            lines.append("")
+        return "\n".join(lines)
+
+    def _build_sample_data_text(self) -> str:
+        """Build sample data preview for the schema explorer tab"""
+        schema = self.db_connection.get_schema()
+        lines = []
+        for table_name in schema:
+            lines.append(f"### {table_name} (first 3 rows)")
+            rows = self.db_connection.get_sample_data(table_name, limit=3)
+            if rows:
+                headers = list(rows[0].keys())
+                lines.append("|" + "|".join(headers) + "|")
+                lines.append("|" + "|".join(["---"] * len(headers)) + "|")
+                for row in rows:
+                    values = [str(row.get(h, "")) for h in headers]
+                    lines.append("|" + "|".join(values) + "|")
+            else:
+                lines.append("*No data available*")
+            lines.append("")
+        return "\n".join(lines)
+
+    def _build_status_text(self) -> str:
+        """Build system status text"""
+        llm_status = (
+            f"GPT-4 ({settings.openai_model})"
+            if self.using_real_llm
+            else "Mock (demo mode - set OPENAI_API_KEY for full LLM)"
+        )
+        vector_db = "FAISS" if FAISS_AVAILABLE else "In-Memory"
+        return (
+            f"| Component | Status |\n"
+            f"|-----------|--------|\n"
+            f"| Database | Connected ({settings.database_type}) |\n"
+            f"| LLM Engine | {llm_status} |\n"
+            f"| Vector DB | {vector_db} |\n"
+            f"| RAG System | Active |\n"
+        )
+
     def create_interface(self) -> gr.Blocks:
         """Create Gradio interface"""
         with gr.Blocks(title="SQL Query Buddy", theme=gr.themes.Soft()) as demo:
-            gr.Markdown("# 🤖 SQL Query Buddy")
+            gr.Markdown("# SQL Query Buddy")
             gr.Markdown(
-                "Ask questions about your database in natural language and get SQL queries with results!"
+                "Ask questions about your database in natural language. "
+                "Get SQL queries, results, explanations, and AI-driven insights."
             )
 
-            with gr.Row():
-                with gr.Column():
-                    gr.Markdown("### How to use:")
-                    gr.Markdown(
-                        """
-                    1. Ask a question about your data
-                    2. The AI will generate and execute an SQL query
-                    3. View results, explanations, and optimization tips
-                    4. Continue the conversation for multi-turn queries
-                    """
+            with gr.Tabs():
+                # Tab 1: Chat Interface
+                with gr.Tab("Chat"):
+                    chatbot = gr.Chatbot(
+                        label="Conversation",
+                        height=500,
+                        show_label=False,
                     )
 
-            with gr.Row():
-                chatbot = gr.Chatbot(
-                    label="Conversation",
-                    height=500,
-                    show_label=True,
-                )
+                    with gr.Row():
+                        msg = gr.Textbox(
+                            label="Your question",
+                            placeholder="Type your question and press Enter or click Send...",
+                            lines=1,
+                            scale=4,
+                        )
+                        submit_btn = gr.Button(
+                            "Send", variant="primary", scale=1
+                        )
+                        clear = gr.Button("Clear Chat", scale=1)
 
-            with gr.Row():
-                msg = gr.Textbox(
-                    label="Your question",
-                    placeholder="e.g., 'Show me the top 5 customers by total purchase amount'",
-                    lines=1,
-                    scale=4,
-                )
-                submit_btn = gr.Button("Send", variant="primary", scale=1)
-                clear = gr.Button("Clear Chat", scale=1)
+                    gr.Markdown("**Try these example queries** *(click to send)*:")
+                    with gr.Row():
+                        ex1 = gr.Button(
+                            "Top 5 customers by spending", size="sm"
+                        )
+                        ex2 = gr.Button(
+                            "Revenue by product category", size="sm"
+                        )
+                        ex3 = gr.Button(
+                            "Total sales per region", size="sm"
+                        )
+                        ex4 = gr.Button(
+                            "Monthly revenue trend", size="sm"
+                        )
+                    with gr.Row():
+                        ex5 = gr.Button(
+                            "Avg order value for returning customers",
+                            size="sm",
+                        )
+                        ex6 = gr.Button(
+                            "Unique products sold in January", size="sm"
+                        )
+                        ex7 = gr.Button(
+                            "Orders with more than 3 items", size="sm"
+                        )
+                        ex8 = gr.Button(
+                            "Customers inactive 3+ months", size="sm"
+                        )
 
-            # Set up event handlers
+                # Tab 2: Schema Explorer
+                with gr.Tab("Schema & Sample Data"):
+                    gr.Markdown("## Database Schema")
+                    gr.Markdown(self._build_schema_explorer_text())
+                    gr.Markdown("## Sample Data")
+                    gr.Markdown(self._build_sample_data_text())
+
+                # Tab 3: System Status
+                with gr.Tab("System Status"):
+                    gr.Markdown("## System Status")
+                    gr.Markdown(self._build_status_text())
+                    gr.Markdown("## About")
+                    gr.Markdown(
+                        "**SQL Query Buddy** converts natural language questions "
+                        "into SQL queries using:\n"
+                        "- **LangChain + GPT-4** for SQL generation\n"
+                        "- **FAISS** vector database for RAG-powered schema retrieval\n"
+                        "- **NLP processing** for intent detection and entity extraction\n"
+                        "- **Query optimization** with performance suggestions\n"
+                        "- **AI insights** with pattern detection and trend analysis\n"
+                        "- **Context retention** for multi-turn conversations\n"
+                    )
+
+            # Event handlers: Enter key and Send button both submit
             msg.submit(self.process_query, [msg, chatbot], [msg, chatbot])
             submit_btn.click(self.process_query, [msg, chatbot], [msg, chatbot])
 
@@ -257,19 +380,23 @@ class QueryBuddyApp:
 
             clear.click(clear_chat, outputs=[chatbot, msg])
 
-            gr.Examples(
-                [
-                    ["Show me the top 5 customers by total purchase amount"],
-                    ["Which product category made the most revenue?"],
-                    ["Show total sales per region"],
-                    ["Find the average order value for returning customers"],
-                    ["How many unique products were sold in January?"],
-                    ["Show the trend of monthly revenue over time"],
-                    ["From the previous result, filter customers from New York only"],
-                    ["How many orders contained more than 3 items?"],
-                ],
-                msg,
-            )
+            # Example query buttons: populate textbox and auto-submit
+            example_queries = {
+                ex1: "Show me the top 5 customers by total purchase amount",
+                ex2: "Which product category made the most revenue?",
+                ex3: "Show total sales per region",
+                ex4: "Show the trend of monthly revenue over time",
+                ex5: "Find the average order value for returning customers",
+                ex6: "How many unique products were sold in January?",
+                ex7: "How many orders contained more than 3 items?",
+                ex8: "List customers who haven't ordered anything in the last 3 months",
+            }
+            for btn, query in example_queries.items():
+                btn.click(
+                    self.process_query,
+                    inputs=[gr.State(query), chatbot],
+                    outputs=[msg, chatbot],
+                )
 
         return demo
 
