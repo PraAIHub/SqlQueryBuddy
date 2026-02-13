@@ -34,12 +34,19 @@ class SQLPromptBuilder:
         "Instructions:\n"
         "1. Generate a valid SQL query that answers the user's question\n"
         "2. Use ONLY the tables and columns from the schema provided\n"
-        "3. Never use subqueries if a simpler query works\n"
-        "4. Use SQLite syntax ONLY. Do NOT use MySQL or PostgreSQL functions.\n"
+        "3. Use SQLite syntax ONLY. Do NOT use MySQL or PostgreSQL functions.\n"
         "   - Use date('now', '-3 months') instead of DATE_SUB/INTERVAL\n"
         "   - Use strftime('%Y', col) instead of EXTRACT(YEAR FROM col)\n"
         "   - Use strftime('%m', col) instead of EXTRACT(MONTH FROM col)\n"
-        "5. Return ONLY the raw SQL query. No comments, no explanations, "
+        "4. CONTEXT RETENTION: If the user references previous results "
+        "(e.g., 'from the previous', 'filter those', 'now show only', "
+        "'of them', 'from that'), you MUST modify the SQL from the "
+        "conversation history. Add WHERE clauses or wrap it as a subquery "
+        "to apply the requested filter. Do NOT repeat the original query.\n"
+        "5. When finding customers with no recent orders, use NOT IN or "
+        "NOT EXISTS with a subquery on the orders table, never LEFT JOIN "
+        "which produces duplicate rows.\n"
+        "6. Return ONLY the raw SQL query. No comments, no explanations, "
         "no markdown. The response must start with SELECT or WITH."
     )
 
@@ -321,6 +328,22 @@ class SQLGeneratorMock:
             "explanation": (
                 "This query calculates the average order value only for returning "
                 "customers (those who have placed at least 2 orders)."
+            ),
+        },
+        # Inactive customers / haven't ordered
+        {
+            "keywords": ["inactive", "haven't ordered", "no order", "not ordered", "last 3 months", "haven't", "dormant"],
+            "sql": (
+                "SELECT c.customer_id, c.name, c.email, c.region "
+                "FROM customers c "
+                "WHERE c.customer_id NOT IN ("
+                "SELECT DISTINCT customer_id FROM orders "
+                "WHERE order_date >= date('now', '-3 months')) "
+                "ORDER BY c.name;"
+            ),
+            "explanation": (
+                "This query finds customers who have NOT placed any orders in the "
+                "last 3 months using a NOT IN subquery, avoiding duplicates."
             ),
         },
         # Monthly revenue / trend

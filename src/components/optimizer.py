@@ -42,8 +42,22 @@ class QueryOptimizer:
             "ASC", "DESC", "AS", "ON", "BY", "FROM", "JOIN", "WHERE",
             "GROUP", "ORDER", "HAVING", "LIMIT", "OFFSET", "SELECT",
         }
+        # SQL functions that should not be treated as column names
+        functions = {
+            "STRFTIME", "DATE", "DATETIME", "TIME", "JULIANDAY",
+            "LOWER", "UPPER", "SUBSTR", "SUBSTRING", "REPLACE", "TRIM",
+            "CAST", "COALESCE", "IFNULL", "NULLIF", "ABS", "ROUND",
+            "COUNT", "SUM", "AVG", "MIN", "MAX", "LENGTH", "TYPEOF",
+            "NOW", "TOTAL", "GROUP_CONCAT",
+        }
         tokens = re.findall(r"(?:\w+\.)?(\w+)", clause_text)
-        return [t for t in tokens if t.upper() not in skip and not t.isdigit()]
+        return [
+            t for t in tokens
+            if t.upper() not in skip
+            and t.upper() not in functions
+            and not t.isdigit()
+            and len(t) > 1  # skip single-char aliases and format specifiers
+        ]
 
     @staticmethod
     def _check_missing_where_clause(query: str) -> Optional[Dict[str, str]]:

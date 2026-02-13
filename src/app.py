@@ -46,13 +46,14 @@ class QueryBuddyApp:
             settings.openai_api_key and settings.openai_api_key != ""
         )
 
-        # Initialize SQL generator
+        # Initialize SQL generator (with mock fallback for API errors)
+        self.mock_generator = SQLGeneratorMock()
         if self.using_real_llm:
             self.sql_generator = SQLGenerator(
                 openai_api_key=settings.openai_api_key, model=settings.openai_model
             )
         else:
-            self.sql_generator = SQLGeneratorMock()
+            self.sql_generator = self.mock_generator
 
         # Initialize RAG system with schema embeddings
         schema = self.db_connection.get_schema()
@@ -228,12 +229,28 @@ class QueryBuddyApp:
                 f"Full Schema:\n{full_schema_str}"
             )
 
-            # Generate SQL
+            # Generate SQL (with mock fallback on API errors like 429)
+            conversation_ctx = self.context_manager.get_full_context()
             result = self.sql_generator.generate(
                 user_query=user_message,
                 schema_context=schema_str,
-                conversation_history=self.context_manager.get_full_context(),
+                conversation_history=conversation_ctx,
             )
+
+            # Fallback to mock generator on API errors (quota, rate limit)
+            if (
+                not result.get("success", False)
+                and self.using_real_llm
+                and any(
+                    hint in result.get("error", "").lower()
+                    for hint in ["429", "quota", "rate limit", "rate_limit"]
+                )
+            ):
+                result = self.mock_generator.generate(
+                    user_query=user_message,
+                    schema_context=schema_str,
+                    conversation_history=conversation_ctx,
+                )
 
             if not result.get("success", False):
                 error_msg = result.get("error", "Unknown error")
