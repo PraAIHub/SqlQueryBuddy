@@ -1,3 +1,13 @@
+---
+title: SQL Query Buddy
+emoji: 🤖
+colorFrom: blue
+colorTo: purple
+sdk: docker
+app_port: 7860
+pinned: false
+---
+
 # SQL Query Buddy 🤖
 
 An intelligent conversational AI agent that transforms natural language questions into optimized SQL queries, executes them against your database, and provides AI-driven insights on the results.
