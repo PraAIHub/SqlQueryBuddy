@@ -423,5 +423,107 @@ class TestCurrencyFormatting:
         assert QueryBuddyApp._format_cell("region", "California") == "California"
 
 
+class TestOptimizerCategorization:
+    """Test optimizer categorized suggestions and assumptions."""
+
+    def test_suggestions_have_categories(self):
+        optimizer = QueryOptimizer()
+        result = optimizer.analyze("SELECT * FROM customers")
+        for s in result["suggestions"]:
+            assert "category" in s
+
+    def test_categorized_dict(self):
+        optimizer = QueryOptimizer()
+        result = optimizer.analyze("SELECT * FROM customers")
+        categorized = result["categorized"]
+        assert "performance" in categorized
+        assert "assumptions" in categorized
+        assert "next_steps" in categorized
+
+    def test_assumption_no_date_filter(self):
+        optimizer = QueryOptimizer()
+        result = optimizer.analyze(
+            "SELECT c.name, SUM(o.total_amount) FROM customers c JOIN orders o ON c.customer_id = o.customer_id GROUP BY c.name",
+            "top customers by spending",
+        )
+        assumption_texts = [
+            s["suggestion"] for s in result["categorized"].get("assumptions", [])
+        ]
+        assert any("all-time" in t for t in assumption_texts)
+
+    def test_assumption_revenue_metric(self):
+        optimizer = QueryOptimizer()
+        result = optimizer.analyze(
+            "SELECT SUM(o.total_amount) AS revenue FROM orders o",
+            "show total revenue",
+        )
+        assumption_texts = [
+            s["suggestion"] for s in result["categorized"].get("assumptions", [])
+        ]
+        assert any("SUM" in t for t in assumption_texts)
+
+    def test_heavy_query_detection(self):
+        cost = QueryOptimizer.estimate_query_cost(
+            "SELECT * FROM customers JOIN orders ON customers.customer_id = orders.customer_id "
+            "JOIN order_items ON orders.order_id = order_items.order_id "
+            "JOIN products ON order_items.product_id = products.product_id"
+        )
+        assert cost["is_heavy"] is True
+        assert len(cost["warnings"]) > 0
+
+    def test_light_query_not_heavy(self):
+        cost = QueryOptimizer.estimate_query_cost(
+            "SELECT name FROM customers WHERE region = 'California' LIMIT 10"
+        )
+        assert cost["is_heavy"] is False
+
+
+class TestQueryPlan:
+    """Test structured conversation state (QueryPlan)."""
+
+    def test_query_plan_update(self):
+        from src.components.nlp_processor import QueryPlan
+        plan = QueryPlan()
+        plan.update(
+            intent="retrieve",
+            entities=["customers", "orders"],
+            generated_sql="SELECT c.name FROM customers c JOIN orders o ON c.customer_id = o.customer_id WHERE c.region = 'California'",
+            user_query="show customers in California",
+        )
+        assert "customers" in plan.active_tables
+        assert "orders" in plan.active_tables
+        assert plan.last_intent == "retrieve"
+        assert len(plan.active_filters) > 0
+        assert plan.turn_count == 1
+
+    def test_query_plan_time_range(self):
+        from src.components.nlp_processor import QueryPlan
+        plan = QueryPlan()
+        plan.update(
+            intent="trend",
+            entities=["orders"],
+            generated_sql="SELECT strftime('%Y-%m', order_date) AS month, SUM(total_amount) FROM orders GROUP BY month",
+            user_query="show monthly revenue this year",
+        )
+        assert plan.time_range == "this year"
+
+    def test_query_plan_reset(self):
+        from src.components.nlp_processor import QueryPlan
+        plan = QueryPlan()
+        plan.update("retrieve", ["customers"], "SELECT * FROM customers", "show customers")
+        plan.reset()
+        assert plan.turn_count == 0
+        assert plan.active_tables == []
+        assert plan.last_sql == ""
+
+    def test_context_string_includes_plan(self):
+        manager = ContextManager()
+        manager.add_response("show customers", "Here are the results", "SELECT * FROM customers")
+        manager.update_query_plan("retrieve", ["customers"], "SELECT * FROM customers", "show customers")
+        ctx = manager.get_full_context()
+        assert "Active Query State:" in ctx
+        assert "Tables: customers" in ctx
+
+
 if __name__ == "__main__":
     pytest.main([__file__])

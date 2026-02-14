@@ -349,25 +349,52 @@ class QueryBuddyApp:
                 if len(data) > 10:
                     response_lines.append(f"\n*(Showing 10 of {len(data)} rows)*")
 
-            # Add optimization suggestions
-            opt_result = self.optimizer.analyze(generated_sql)
-            if opt_result.get("suggestions"):
-                response_lines.append("\n**Optimization Suggestions:**")
-                for suggestion in opt_result["suggestions"]:
+            # Heavy query warning (cost heuristics)
+            cost = self.optimizer.estimate_query_cost(generated_sql)
+            if cost["is_heavy"]:
+                response_lines.append("\n**Warning: Heavy Query**")
+                for w in cost["warnings"]:
+                    response_lines.append(f"- {w}")
+                response_lines.append(
+                    "- *Consider adding date filters or LIMIT to reduce scan scope*"
+                )
+
+            # Add categorized optimization suggestions
+            opt_result = self.optimizer.analyze(generated_sql, user_message)
+            categorized = opt_result.get("categorized", {})
+
+            if categorized.get("assumptions"):
+                response_lines.append("\n**Assumptions:**")
+                for s in categorized["assumptions"]:
+                    response_lines.append(f"- {s['suggestion']}")
+
+            if categorized.get("performance"):
+                response_lines.append("\n**Performance:**")
+                for s in categorized["performance"]:
                     response_lines.append(
-                        f"- {suggestion.get('suggestion', '')} "
-                        f"*(severity: {suggestion.get('severity', 'low')})*"
+                        f"- {s['suggestion']} *(severity: {s.get('severity', 'low')})*"
                     )
+
+            if categorized.get("next_steps"):
+                response_lines.append("\n**Next Steps:**")
+                for s in categorized["next_steps"]:
+                    response_lines.append(f"- {s['suggestion']}")
 
             # Generate AI insights (displayed in dedicated panel)
             insights_md = self.insight_generator.generate_insights(data, user_message)
 
-            # Update context
+            # Update context and structured query plan
             response_text = "\n".join(response_lines)
             self.context_manager.add_response(
                 user_input=user_message,
                 assistant_response=response_text,
                 generated_sql=generated_sql,
+            )
+            self.context_manager.update_query_plan(
+                intent=intent,
+                entities=entities,
+                generated_sql=generated_sql,
+                user_query=user_message,
             )
 
             # Generate chart from results (close previous figures to avoid leaks)
@@ -375,9 +402,15 @@ class QueryBuddyApp:
             if data:
                 chart = self._generate_chart(data)
 
+            # Build enriched RAG display with query plan state
+            plan_str = self.context_manager.query_plan.to_context_string()
+            rag_display = rag_context
+            if plan_str:
+                rag_display = f"{rag_context}\n\n---\n**{plan_str}**"
+
             chat_history.append({"role": "user", "content": user_message})
             chat_history.append({"role": "assistant", "content": response_text})
-            return "", chat_history, chart, insights_md, self._format_history(), rag_context, generated_sql
+            return "", chat_history, chart, insights_md, self._format_history(), rag_display, generated_sql
 
         except Exception as e:
             logger.exception("Unexpected error in process_query")
@@ -556,7 +589,7 @@ class QueryBuddyApp:
                         label="Download Results", visible=False
                     )
 
-                    gr.Markdown("**Try these example queries** *(click to send)*:")
+                    gr.Markdown("**Try these example queries** *(click to fill, then press Enter)*:")
                     with gr.Row():
                         ex1 = gr.Button(
                             "Top 5 customers by spending", size="sm"
@@ -657,14 +690,7 @@ class QueryBuddyApp:
                 ex8: "List customers who haven't ordered anything in the last 3 months",
             }
             for btn, query in example_queries.items():
-                btn.click(
-                    lambda q=query: q,
-                    outputs=[msg],
-                ).then(
-                    self.process_query,
-                    inputs=[msg, chatbot],
-                    outputs=query_outputs,
-                )
+                btn.click(lambda q=query: q, outputs=[msg])
 
         return demo
 

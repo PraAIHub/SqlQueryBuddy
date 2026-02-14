@@ -18,7 +18,7 @@ class QueryOptimizer:
             self._check_function_on_indexed_column,
         ]
 
-    def analyze(self, sql_query: str) -> Dict[str, Any]:
+    def analyze(self, sql_query: str, user_query: str = "") -> Dict[str, Any]:
         """Analyze a query and provide optimization suggestions"""
         suggestions = []
 
@@ -27,9 +27,21 @@ class QueryOptimizer:
             if suggestion:
                 suggestions.append(suggestion)
 
+        # Detect assumptions about the query
+        assumptions = self._detect_assumptions(sql_query, user_query)
+        for a in assumptions:
+            suggestions.append(a)
+
+        # Categorize suggestions
+        categorized = {"performance": [], "assumptions": [], "next_steps": []}
+        for s in suggestions:
+            cat = s.get("category", "performance")
+            categorized.setdefault(cat, []).append(s)
+
         return {
             "total_suggestions": len(suggestions),
             "suggestions": suggestions,
+            "categorized": categorized,
             "optimization_level": self._calculate_optimization_level(suggestions),
         }
 
@@ -68,6 +80,7 @@ class QueryOptimizer:
             if "LIMIT" not in query_upper:
                 return {
                     "type": "performance",
+                    "category": "performance",
                     "severity": "high",
                     "suggestion": "Add a WHERE clause or LIMIT to avoid scanning the entire table",
                     "example": "Add 'WHERE column = value' or 'LIMIT 100' to bound the result set",
@@ -81,6 +94,7 @@ class QueryOptimizer:
         if "SELECT *" in query.upper():
             return {
                 "type": "efficiency",
+                "category": "performance",
                 "severity": "medium",
                 "suggestion": "Specify only needed columns instead of SELECT *",
                 "example": "Use 'SELECT id, name, email' instead of 'SELECT *'",
@@ -109,6 +123,7 @@ class QueryOptimizer:
             col_list = ", ".join(unique_cols)
             return {
                 "type": "optimization",
+                "category": "next_steps",
                 "severity": "medium",
                 "suggestion": f"Consider adding indexes on: {col_list}",
                 "example": f"CREATE INDEX idx_{unique_cols[0]} ON table({unique_cols[0]})",
@@ -129,6 +144,7 @@ class QueryOptimizer:
                 join_cols = [f"{m[0]}={m[1]}" for m in on_matches[:3]]
                 return {
                     "type": "performance",
+                    "category": "performance",
                     "severity": "medium" if join_count <= 3 else "high",
                     "suggestion": f"Ensure join columns are indexed ({', '.join(join_cols)})",
                     "example": "Index foreign key columns used in ON clauses for faster joins",
@@ -142,6 +158,7 @@ class QueryOptimizer:
         if query.count("(") > 2:
             return {
                 "type": "readability",
+                "category": "next_steps",
                 "severity": "low",
                 "suggestion": "Complex nested queries might benefit from CTEs (WITH clause)",
                 "example": "Use 'WITH temp AS (SELECT ...) SELECT * FROM temp'",
@@ -159,6 +176,7 @@ class QueryOptimizer:
                 cols = [c.lower() for c in group_cols[:3]]
                 return {
                     "type": "optimization",
+                    "category": "next_steps",
                     "severity": "low",
                     "suggestion": f"Index GROUP BY columns ({', '.join(cols)}) to speed up aggregation",
                     "example": f"CREATE INDEX idx_group ON table({', '.join(cols)})",
@@ -174,6 +192,7 @@ class QueryOptimizer:
             if "WHERE" in query_upper:
                 return {
                     "type": "performance",
+                    "category": "performance",
                     "severity": "low",
                     "suggestion": "Add LIMIT to prevent returning unexpectedly large result sets",
                     "example": "Append 'LIMIT 1000' to cap the number of rows returned",
@@ -191,11 +210,108 @@ class QueryOptimizer:
             if found:
                 return {
                     "type": "optimization",
+                    "category": "performance",
                     "severity": "medium",
                     "suggestion": f"Function ({', '.join(found)}) in WHERE clause prevents index usage",
                     "example": "Use computed/stored columns or restructure the filter to avoid wrapping indexed columns in functions",
                 }
         return None
+
+    @staticmethod
+    def _detect_assumptions(sql_query: str, user_query: str = "") -> List[Dict[str, str]]:
+        """Detect implicit assumptions in the generated query."""
+        assumptions = []
+        sql_upper = sql_query.upper()
+        query_lower = user_query.lower()
+
+        # No date filter → assume all-time data
+        date_keywords = ["date", "month", "year", "quarter", "week", "period", "recent", "last"]
+        has_date_filter = "ORDER_DATE" in sql_upper and ("WHERE" in sql_upper or "STRFTIME" in sql_upper)
+        user_mentioned_time = any(kw in query_lower for kw in date_keywords)
+        if not has_date_filter and not user_mentioned_time:
+            assumptions.append({
+                "type": "assumption",
+                "category": "assumptions",
+                "severity": "info",
+                "suggestion": "No date filter applied — results span all-time data",
+                "example": "Add a time filter like 'this year' or 'last 3 months' for a specific period",
+            })
+
+        # Revenue/sales assumed as SUM(total_amount) or SUM(subtotal)
+        revenue_words = ["revenue", "sales", "spending", "income"]
+        if any(w in query_lower for w in revenue_words):
+            if "SUM(" in sql_upper:
+                if "TOTAL_AMOUNT" in sql_upper:
+                    metric = "SUM(orders.total_amount)"
+                elif "SUBTOTAL" in sql_upper:
+                    metric = "SUM(order_items.subtotal)"
+                else:
+                    metric = "SUM aggregation"
+                assumptions.append({
+                    "type": "assumption",
+                    "category": "assumptions",
+                    "severity": "info",
+                    "suggestion": f"Revenue is calculated as {metric}",
+                    "example": "This includes all order statuses; adjust if you need only completed orders",
+                })
+
+        # "Top N" without explicit N → assumed default
+        if "top" in query_lower and "LIMIT" in sql_upper:
+            import re
+            limit_match = re.search(r"LIMIT\s+(\d+)", sql_upper)
+            if limit_match:
+                n = limit_match.group(1)
+                if f"top {n}" not in query_lower:
+                    assumptions.append({
+                        "type": "assumption",
+                        "category": "assumptions",
+                        "severity": "info",
+                        "suggestion": f"Defaulting to top {n} results",
+                        "example": f"Specify 'top 10' or 'top 20' for a different limit",
+                    })
+
+        return assumptions
+
+    @staticmethod
+    def estimate_query_cost(sql_query: str) -> Dict[str, Any]:
+        """Estimate query cost heuristics for heavy query detection."""
+        sql_upper = sql_query.upper()
+        warnings = []
+        cost_score = 0  # 0=light, higher=heavier
+
+        join_count = sql_upper.count("JOIN")
+        has_where = "WHERE" in sql_upper
+        has_limit = "LIMIT" in sql_upper
+        has_agg = any(fn in sql_upper for fn in ["COUNT(", "SUM(", "AVG(", "MAX(", "MIN("])
+        has_group_by = "GROUP BY" in sql_upper
+        has_select_star = "SELECT *" in sql_upper
+
+        # Full table scan: no WHERE + no LIMIT + no aggregation
+        if not has_where and not has_limit and not has_agg and not has_group_by:
+            cost_score += 3
+            warnings.append("Full table scan — no WHERE or LIMIT clause")
+
+        # Multiple JOINs
+        if join_count >= 3:
+            cost_score += 2
+            warnings.append(f"{join_count} JOINs detected — may be slow on large tables")
+        elif join_count >= 2:
+            cost_score += 1
+
+        # SELECT * with JOINs
+        if has_select_star and join_count >= 1:
+            cost_score += 1
+            warnings.append("SELECT * with JOINs returns many columns — specify only needed columns")
+
+        # No LIMIT on non-aggregated query with WHERE
+        if has_where and not has_limit and not has_agg and not has_group_by:
+            cost_score += 1
+
+        return {
+            "cost_score": cost_score,
+            "is_heavy": cost_score >= 3,
+            "warnings": warnings,
+        }
 
     @staticmethod
     def _calculate_optimization_level(suggestions: List[Dict]) -> str:
