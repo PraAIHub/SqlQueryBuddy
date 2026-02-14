@@ -572,32 +572,7 @@ class QueryBuddyApp:
                         """
                     gr.HTML(mode_html)
 
-                    chatbot = gr.Chatbot(
-                        label="Conversation",
-                        height=350,
-                        show_label=False,
-                    )
-
-                    # Dedicated panels for Visualization and AI Insights
-                    with gr.Row():
-                        with gr.Column(scale=3):
-                            gr.Markdown("### Visualization")
-                            chart_output = gr.Plot(
-                                label="Chart", show_label=False,
-                            )
-                        with gr.Column(scale=2):
-                            gr.Markdown("### AI Insights")
-                            insights_output = gr.Markdown(
-                                value="*Run a query to see AI-powered insights here.*",
-                            )
-
-                    with gr.Accordion("Generated SQL (click to copy)", open=False):
-                        sql_output = gr.Code(
-                            label="SQL",
-                            language="sql",
-                            value="-- Run a query to see generated SQL here",
-                        )
-
+                    # PRIMARY ACTION FIRST: Question input at the top
                     with gr.Row():
                         msg = gr.Textbox(
                             label="Your question",
@@ -614,7 +589,8 @@ class QueryBuddyApp:
                         label="Download Results", visible=False
                     )
 
-                    gr.Markdown("**Try these example queries** *(click to fill, then press Enter)*:")
+                    # EXAMPLE QUERIES: Immediate guidance on what to ask
+                    gr.Markdown("**💡 Try these example queries:**")
                     with gr.Row():
                         ex1 = gr.Button(
                             "Top 5 customers by spending", size="sm"
@@ -641,6 +617,34 @@ class QueryBuddyApp:
                         )
                         ex8 = gr.Button(
                             "Customers inactive 3+ months", size="sm"
+                        )
+
+                    # CONVERSATION: Shows query/response history
+                    chatbot = gr.Chatbot(
+                        label="Conversation",
+                        height=350,
+                        show_label=False,
+                    )
+
+                    # RESULTS: Visualization and AI Insights
+                    with gr.Row():
+                        with gr.Column(scale=3):
+                            gr.Markdown("### Visualization")
+                            chart_output = gr.Plot(
+                                label="Chart", show_label=False,
+                            )
+                        with gr.Column(scale=2):
+                            gr.Markdown("### AI Insights")
+                            insights_output = gr.Markdown(
+                                value="*Run a query to see AI-powered insights here.*",
+                            )
+
+                    # TECHNICAL DETAILS: Collapsible accordions
+                    with gr.Accordion("Generated SQL (click to copy)", open=False):
+                        sql_output = gr.Code(
+                            label="SQL",
+                            language="sql",
+                            value="-- Run a query to see generated SQL here",
                         )
 
                     with gr.Accordion("Query History", open=False):
