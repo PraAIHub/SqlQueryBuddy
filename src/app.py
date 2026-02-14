@@ -223,9 +223,20 @@ class QueryBuddyApp:
 
         user_message = user_message.strip()
 
-        # Cap input length to prevent abuse
-        if len(user_message) > 500:
-            user_message = user_message[:500]
+        # Validate input length (reject instead of silent truncation)
+        MAX_QUERY_LENGTH = 500
+        if len(user_message) > MAX_QUERY_LENGTH:
+            error_response = (
+                f"❌ **Query Too Long**\n\n"
+                f"Your query is {len(user_message)} characters, but the maximum allowed is {MAX_QUERY_LENGTH} characters.\n\n"
+                f"**Tip:** Try breaking your question into smaller, focused queries.\n\n"
+                f"**Example:** Instead of a long complex question, ask:\n"
+                f"- \"Show me the top 5 customers by total purchase amount\"\n"
+                f"- Then: \"From those, filter to California only\""
+            )
+            chat_history.append({"role": "user", "content": user_message[:100] + "..."})
+            chat_history.append({"role": "assistant", "content": error_response})
+            return "", chat_history, None, "", self._format_history(), "", ""
 
         try:
             # Parse user input with NLP
@@ -532,21 +543,34 @@ class QueryBuddyApp:
             with gr.Tabs():
                 # Tab 1: Chat Interface
                 with gr.Tab("Chat"):
-                    # Mode banner: show LLM mode + DB type at a glance
+                    # Mode banner: visual color-coded badge showing LLM mode + DB type
                     if self.using_real_llm:
-                        mode_text = (
-                            f"**Live LLM** ({settings.openai_model}) "
-                            f"| DB: {settings.database_type}"
-                        )
+                        mode_html = f"""
+                        <div style='background: linear-gradient(90deg, #10b981 0%, #059669 100%);
+                                    color: white;
+                                    padding: 12px 20px;
+                                    border-radius: 8px;
+                                    text-align: center;
+                                    font-weight: bold;
+                                    margin-bottom: 16px;
+                                    box-shadow: 0 2px 4px rgba(16, 185, 129, 0.2);'>
+                            ✅ Live LLM ({settings.openai_model}) | 🗄️ DB: {settings.database_type}
+                        </div>
+                        """
                     else:
-                        mode_text = (
-                            f"**Demo Mode** (mock SQL generator) "
-                            f"| DB: {settings.database_type}"
-                        )
-                    gr.Markdown(
-                        mode_text,
-                        elem_classes=["mode-banner"],
-                    )
+                        mode_html = f"""
+                        <div style='background: linear-gradient(90deg, #f59e0b 0%, #d97706 100%);
+                                    color: white;
+                                    padding: 12px 20px;
+                                    border-radius: 8px;
+                                    text-align: center;
+                                    font-weight: bold;
+                                    margin-bottom: 16px;
+                                    box-shadow: 0 2px 4px rgba(245, 158, 11, 0.2);'>
+                            ⚠️ Demo Mode (Mock SQL Generator) | 🗄️ DB: {settings.database_type}
+                        </div>
+                        """
+                    gr.HTML(mode_html)
 
                     chatbot = gr.Chatbot(
                         label="Conversation",

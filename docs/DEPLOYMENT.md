@@ -167,6 +167,77 @@ heroku config:set OPENAI_API_KEY="sk-..."
 heroku open
 ```
 
+### HuggingFace Spaces (Recommended for Gradio Apps)
+
+**URL:** https://huggingface.co/spaces/rsprasanna/SqlQueryBuddy
+
+HuggingFace Spaces is the recommended deployment platform for Gradio applications.
+
+#### Initial Setup
+
+1. **Create a new Space** at https://huggingface.co/new-space
+   - Name: SqlQueryBuddy
+   - SDK: Gradio
+   - Hardware: CPU basic (free) or GPU if needed
+
+2. **Push your code**:
+```bash
+git remote add hf https://huggingface.co/spaces/YOUR_USERNAME/SqlQueryBuddy
+git push hf main
+```
+
+#### Setting Environment Variables (CRITICAL for API Keys)
+
+**NEVER commit API keys to git!** Use HuggingFace Secrets instead:
+
+1. **Go to your Space settings**:
+   - Navigate to https://huggingface.co/spaces/YOUR_USERNAME/SqlQueryBuddy/settings
+   - Click on "Repository secrets" section
+
+2. **Add secrets** (one at a time):
+   - Click "Add a secret"
+   - Name: `OPENAI_API_KEY`
+   - Value: `sk-proj-YOUR-ACTUAL-KEY-HERE`
+   - Click "Add secret"
+
+3. **Add other environment variables** as secrets:
+   ```
+   OPENAI_MODEL=gpt-4
+   DEBUG=false
+   DATABASE_TYPE=sqlite
+   VECTOR_DB_TYPE=faiss
+   SIMILARITY_THRESHOLD=0.7
+   ```
+
+4. **The app will automatically restart** and pick up the new secrets
+
+#### Updating Your API Key
+
+If your API key is exposed or needs rotation:
+
+1. **Revoke the old key** in OpenAI dashboard: https://platform.openai.com/api-keys
+2. **Generate a new key** in OpenAI
+3. **Update the secret in HuggingFace**:
+   - Go to Space settings → Repository secrets
+   - Click "Edit" on OPENAI_API_KEY
+   - Paste the new key
+   - Click "Update secret"
+4. **Space will auto-restart** with the new key (no code changes needed)
+
+#### Monitoring Your Space
+
+- **Logs**: Click "Logs" tab in your Space to see runtime output
+- **Usage**: Check "Analytics" for visitor stats
+- **Rebuilds**: Space rebuilds automatically on git push
+
+#### Important Notes
+
+- ✅ HuggingFace Spaces supports Docker (Dockerfile is included)
+- ✅ Free CPU tier available (7860 port auto-configured)
+- ✅ Secrets are encrypted and never exposed in logs
+- ⚠️ SQLite database resets on each restart (use PostgreSQL for persistence)
+- ⚠️ Free tier has limited resources (consider upgrading for production)
+
 ### Google Cloud Run
 
 1. **Build and push image**:

@@ -4,9 +4,12 @@ from contextlib import contextmanager
 import random
 import sqlite3
 import threading
+import logging
 from datetime import date, timedelta
 from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.exc import SQLAlchemyError
+
+logger = logging.getLogger(__name__)
 
 
 class DatabaseConnection:
@@ -68,14 +71,24 @@ class DatabaseConnection:
                         )
                     result_container.update(response)
             except SQLAlchemyError as e:
+                # Log detailed error for debugging (not shown to user)
+                logger.error(f"Database error: {type(e).__name__}: {str(e)}", exc_info=True)
                 result_container.update({
                     "success": False,
-                    "error": f"Query execution failed: {type(e).__name__}",
+                    "error": (
+                        "Query execution failed. Please check your query syntax. "
+                        "Common issues: invalid column names, incorrect JOIN conditions, or syntax errors."
+                    ),
                 })
             except Exception as e:
+                # Log detailed error for debugging (not shown to user)
+                logger.error(f"Unexpected error: {type(e).__name__}: {str(e)}", exc_info=True)
                 result_container.update({
                     "success": False,
-                    "error": f"Unexpected error: {type(e).__name__}",
+                    "error": (
+                        "An unexpected error occurred while executing the query. "
+                        "Please try rephrasing your question or contact support if the issue persists."
+                    ),
                 })
 
         # Run with timeout enforcement via threading
