@@ -804,10 +804,26 @@ class QueryBuddyApp:
             example_outputs = [msg] + query_outputs
 
             for btn, query in example_queries.items():
-                # Single click handler - no .then() chains to avoid race conditions
+                # First: Immediately disable ALL buttons when ANY example is clicked
                 btn.click(
+                    fn=lambda: [
+                        gr.update(interactive=False),  # msg
+                        gr.update(interactive=False),  # submit_btn
+                        gr.update(interactive=False),  # ex1
+                        gr.update(interactive=False),  # ex2
+                        gr.update(interactive=False),  # ex3
+                        gr.update(interactive=False),  # ex4
+                        gr.update(interactive=False),  # ex5
+                        gr.update(interactive=False),  # ex6
+                        gr.update(interactive=False),  # ex7
+                        gr.update(interactive=False),  # ex8
+                    ],
+                    outputs=[msg, submit_btn, ex1, ex2, ex3, ex4, ex5, ex6, ex7, ex8],
+                    queue=False  # Instant disable
+                ).then(
+                    # Second: Process query and re-enable all buttons
                     fn=lambda ch, q=query: handle_example_click(q, ch),
-                    inputs=[chatbot],  # Need chatbot history as input
+                    inputs=[chatbot],
                     outputs=example_outputs,
                 )
 
