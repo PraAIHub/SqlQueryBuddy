@@ -606,7 +606,7 @@ class QueryBuddyApp:
                             scale=4,
                         )
                         submit_btn = gr.Button(
-                            "Send", variant="primary", scale=1
+                            "Send", variant="primary", scale=1, interactive=False  # Disabled when empty
                         )
                         export_btn = gr.Button("Export CSV", scale=1)
                         clear = gr.Button("Clear Chat", scale=1)
@@ -676,10 +676,57 @@ class QueryBuddyApp:
                         "- **Context retention** for multi-turn conversations\n"
                     )
 
-            # Event handlers: Enter key and Send button both submit
-            query_outputs = [msg, chatbot, chart_output, insights_output, history_output, rag_output, sql_output]
-            msg.submit(self.process_query, [msg, chatbot], query_outputs)
-            submit_btn.click(self.process_query, [msg, chatbot], query_outputs)
+            # Wrapper function to handle loading states
+            def process_with_loading(user_message, chat_history):
+                """Process query and manage button states during execution"""
+                # Call the actual process_query function
+                results = self.process_query(user_message, chat_history)
+
+                # Return results + re-enable all interactive components
+                return list(results) + [
+                    gr.update(interactive=True),   # msg textbox
+                    gr.update(interactive=True),   # submit_btn
+                    gr.update(interactive=True),   # ex1
+                    gr.update(interactive=True),   # ex2
+                    gr.update(interactive=True),   # ex3
+                    gr.update(interactive=True),   # ex4
+                    gr.update(interactive=True),   # ex5
+                    gr.update(interactive=True),   # ex6
+                    gr.update(interactive=True),   # ex7
+                    gr.update(interactive=True),   # ex8
+                ]
+
+            # All outputs including button states
+            query_outputs = [
+                msg, chatbot, chart_output, insights_output,
+                history_output, rag_output, sql_output,
+                msg, submit_btn, ex1, ex2, ex3, ex4, ex5, ex6, ex7, ex8
+            ]
+
+            # Event handlers with loading state management
+            msg.submit(
+                lambda: [
+                    gr.update(interactive=False),  # msg
+                    gr.update(interactive=False),  # submit_btn
+                    gr.update(interactive=False),  # ex1-ex8 (all buttons)
+                ] * 3,  # Disable msg, submit, and all 8 example buttons
+                outputs=[msg, submit_btn, ex1, ex2, ex3, ex4, ex5, ex6, ex7, ex8],
+                queue=False
+            ).then(
+                process_with_loading, [msg, chatbot], query_outputs
+            )
+
+            submit_btn.click(
+                lambda: [
+                    gr.update(interactive=False),  # msg
+                    gr.update(interactive=False),  # submit_btn
+                    gr.update(interactive=False),  # ex1-ex8
+                ] * 3,
+                outputs=[msg, submit_btn, ex1, ex2, ex3, ex4, ex5, ex6, ex7, ex8],
+                queue=False
+            ).then(
+                process_with_loading, [msg, chatbot], query_outputs
+            )
 
             def clear_chat():
                 self.context_manager.reset()
@@ -703,7 +750,14 @@ class QueryBuddyApp:
 
             export_btn.click(handle_export, outputs=[export_file])
 
-            # Example query buttons: fill textbox then auto-submit
+            # Enable/disable Send button based on textbox content
+            def update_send_button(text):
+                """Enable Send button only when textbox has content"""
+                return gr.update(interactive=bool(text and text.strip()))
+
+            msg.change(update_send_button, inputs=[msg], outputs=[submit_btn])
+
+            # Example query buttons: fill textbox, disable buttons, auto-submit, re-enable
             example_queries = {
                 ex1: "Show me the top 5 customers by total purchase amount",
                 ex2: "Which product category made the most revenue?",
@@ -718,7 +772,11 @@ class QueryBuddyApp:
                 btn.click(
                     lambda q=query: q, outputs=[msg]
                 ).then(
-                    self.process_query, [msg, chatbot], query_outputs
+                    lambda: [gr.update(interactive=False)] * 10,  # Disable all buttons
+                    outputs=[msg, submit_btn, ex1, ex2, ex3, ex4, ex5, ex6, ex7, ex8],
+                    queue=False
+                ).then(
+                    process_with_loading, [msg, chatbot], query_outputs
                 )
 
         return demo
