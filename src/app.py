@@ -769,7 +769,26 @@ class QueryBuddyApp:
 
             msg.change(update_send_button, inputs=[msg], outputs=[submit_btn])
 
-            # Example query buttons: fill textbox, disable buttons, auto-submit, re-enable
+            # Example query buttons: single handler to prevent race conditions
+            def handle_example_click(query_text, chat_history):
+                """Handle example button click: fill textbox and process query in one go"""
+                # Process the query
+                results = self.process_query(query_text, chat_history)
+
+                # Return results + re-enable all buttons + update textbox
+                return [query_text] + list(results) + [
+                    gr.update(interactive=True),   # msg textbox
+                    gr.update(interactive=True),   # submit_btn
+                    gr.update(interactive=True),   # ex1
+                    gr.update(interactive=True),   # ex2
+                    gr.update(interactive=True),   # ex3
+                    gr.update(interactive=True),   # ex4
+                    gr.update(interactive=True),   # ex5
+                    gr.update(interactive=True),   # ex6
+                    gr.update(interactive=True),   # ex7
+                    gr.update(interactive=True),   # ex8
+                ]
+
             example_queries = {
                 ex1: "Show me the top 5 customers by total purchase amount",
                 ex2: "Which product category made the most revenue?",
@@ -780,15 +799,16 @@ class QueryBuddyApp:
                 ex7: "How many orders contained more than 3 items?",
                 ex8: "List customers who haven't ordered anything in the last 3 months",
             }
+
+            # Outputs: textbox first, then all query outputs, then button states
+            example_outputs = [msg] + query_outputs
+
             for btn, query in example_queries.items():
+                # Single click handler - no .then() chains to avoid race conditions
                 btn.click(
-                    lambda q=query: q, outputs=[msg]
-                ).then(
-                    lambda: [gr.update(interactive=False)] * 10,  # Disable all buttons
-                    outputs=[msg, submit_btn, ex1, ex2, ex3, ex4, ex5, ex6, ex7, ex8],
-                    queue=False
-                ).then(
-                    process_with_loading, [msg, chatbot], query_outputs
+                    fn=lambda ch, q=query: handle_example_click(q, ch),
+                    inputs=[chatbot],  # Need chatbot history as input
+                    outputs=example_outputs,
                 )
 
         return demo
