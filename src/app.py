@@ -520,7 +520,7 @@ class QueryBuddyApp:
 
     def create_interface(self) -> gr.Blocks:
         """Create Gradio interface"""
-        with gr.Blocks(title="SQL Query Buddy", theme=gr.themes.Soft()) as demo:
+        with gr.Blocks(title="SQL Query Buddy") as demo:
             gr.Markdown("# SQL Query Buddy")
             gr.Markdown(
                 "Ask questions about your database in natural language. "
@@ -550,7 +550,6 @@ class QueryBuddyApp:
                         label="Conversation",
                         height=350,
                         show_label=False,
-                        type="messages",
                     )
 
                     # Dedicated panels for Visualization and AI Insights
@@ -717,6 +716,7 @@ def main():
         server_name=settings.server_host,
         server_port=settings.gradio_server_port,
         share=settings.gradio_share,
+        theme=gr.themes.Soft(),
     )
 
 
