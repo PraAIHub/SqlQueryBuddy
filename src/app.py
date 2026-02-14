@@ -168,6 +168,7 @@ class QueryBuddyApp:
 
         fig, ax = plt.subplots(figsize=(8, 4))
         rows = data[:30]
+        is_truncated = len(data) > 30
         values = []
         for row in rows:
             try:
@@ -180,7 +181,10 @@ class QueryBuddyApp:
             ax.plot(range(len(labels)), values, marker="o", linewidth=2, color="#2563eb")
             ax.set_xticks(range(len(labels)))
             ax.set_xticklabels(labels, rotation=45, ha="right", fontsize=8)
-            ax.set_title(f"{numeric_col} over {date_col}", fontsize=12, fontweight="bold")
+            title = f"{numeric_col} over {date_col}"
+            if is_truncated:
+                title += f" (showing first 30 of {len(data)} points)"
+            ax.set_title(title, fontsize=12, fontweight="bold")
             ax.set_ylabel(numeric_col)
         elif categorical_col:
             labels = [str(row.get(categorical_col, ""))[:20] for row in rows[:20]]
@@ -188,7 +192,10 @@ class QueryBuddyApp:
             ax.barh(range(len(labels)), vals, color="#2563eb")
             ax.set_yticks(range(len(labels)))
             ax.set_yticklabels(labels, fontsize=9)
-            ax.set_title(f"{numeric_col} by {categorical_col}", fontsize=12, fontweight="bold")
+            title = f"{numeric_col} by {categorical_col}"
+            if is_truncated:
+                title += f" (first 20 of {len(data)})"
+            ax.set_title(title, fontsize=12, fontweight="bold")
             ax.set_xlabel(numeric_col)
             ax.invert_yaxis()
         else:
@@ -433,9 +440,35 @@ class QueryBuddyApp:
 
         except Exception as e:
             logger.exception("Unexpected error in process_query")
-            error_response = (
-                "**Something went wrong.** Please try again or rephrase your question."
-            )
+            error_type = type(e).__name__
+
+            # Provide more specific error messages based on error type
+            if "timeout" in str(e).lower() or "TimeoutError" in error_type:
+                error_response = (
+                    "⏱️ **Query Timeout** - The operation took too long. "
+                    "Try simplifying your question or adding more specific filters."
+                )
+            elif "connection" in str(e).lower() or "ConnectionError" in error_type:
+                error_response = (
+                    "🔌 **Connection Error** - Unable to connect to the service. "
+                    "Please check your network connection and try again."
+                )
+            elif "rate" in str(e).lower() or "429" in str(e):
+                error_response = (
+                    "⚠️ **Rate Limit** - Too many requests. "
+                    "The system has automatically switched to demo mode. Please try your query again."
+                )
+            elif "OpenAIError" in error_type or "APIError" in error_type:
+                error_response = (
+                    "🤖 **LLM Service Error** - The AI service is temporarily unavailable. "
+                    "Try again in a moment, or check if your API key is configured correctly."
+                )
+            else:
+                error_response = (
+                    f"❌ **Unexpected Error ({error_type})** - Something went wrong while processing your query. "
+                    "Please try rephrasing your question or contact support if this persists."
+                )
+
             chat_history.append({"role": "user", "content": user_message})
             chat_history.append({"role": "assistant", "content": error_response})
             return "", chat_history, None, "", self._format_history(), "", ""
@@ -696,7 +729,6 @@ class QueryBuddyApp:
 
                 # Return results + re-enable all interactive components
                 return list(results) + [
-                    gr.update(interactive=True),   # msg textbox
                     gr.update(interactive=True),   # submit_btn
                     gr.update(interactive=True),   # ex1
                     gr.update(interactive=True),   # ex2
@@ -712,29 +744,21 @@ class QueryBuddyApp:
             query_outputs = [
                 msg, chatbot, chart_output, insights_output,
                 history_output, rag_output, sql_output,
-                msg, submit_btn, ex1, ex2, ex3, ex4, ex5, ex6, ex7, ex8
+                submit_btn, ex1, ex2, ex3, ex4, ex5, ex6, ex7, ex8
             ]
 
             # Event handlers with loading state management
             msg.submit(
-                lambda: [
-                    gr.update(interactive=False),  # msg
-                    gr.update(interactive=False),  # submit_btn
-                    gr.update(interactive=False),  # ex1-ex8 (all buttons)
-                ] * 3,  # Disable msg, submit, and all 8 example buttons
-                outputs=[msg, submit_btn, ex1, ex2, ex3, ex4, ex5, ex6, ex7, ex8],
+                lambda: [gr.update(interactive=False)] * 9,  # Disable submit + 8 example buttons
+                outputs=[submit_btn, ex1, ex2, ex3, ex4, ex5, ex6, ex7, ex8],
                 queue=False
             ).then(
                 process_with_loading, [msg, chatbot], query_outputs
             )
 
             submit_btn.click(
-                lambda: [
-                    gr.update(interactive=False),  # msg
-                    gr.update(interactive=False),  # submit_btn
-                    gr.update(interactive=False),  # ex1-ex8
-                ] * 3,
-                outputs=[msg, submit_btn, ex1, ex2, ex3, ex4, ex5, ex6, ex7, ex8],
+                lambda: [gr.update(interactive=False)] * 9,  # Disable submit + 8 example buttons
+                outputs=[submit_btn, ex1, ex2, ex3, ex4, ex5, ex6, ex7, ex8],
                 queue=False
             ).then(
                 process_with_loading, [msg, chatbot], query_outputs
