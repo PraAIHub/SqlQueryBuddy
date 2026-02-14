@@ -392,7 +392,7 @@ class RAGSystem:
     def get_schema_context_string(
         self, user_query: str, similarity_threshold: float = 0.0
     ) -> str:
-        """Get relevant schema as formatted context string"""
+        """Get relevant schema as formatted context string with detailed information"""
         context = self.retrieve_context(
             user_query, similarity_threshold=similarity_threshold
         )
@@ -404,12 +404,43 @@ class RAGSystem:
                 "Available tables: customers, products, orders, order_items."
             )
 
-        lines = ["Relevant Schema Elements:"]
+        lines = ["### 🎯 Relevant Schema Elements (retrieved by RAG):\n"]
+
+        # Group by tables
+        tables_found = set()
+        columns_by_table = {}
 
         for item in context:
             if item["type"] == "table":
-                lines.append(f"- Table: {item['name']}")
+                tables_found.add(item["name"])
             elif item["type"] == "column":
-                lines.append(f"  - Column: {item['name']} (Table: {item['table']})")
+                table = item.get("table", "unknown")
+                if table not in columns_by_table:
+                    columns_by_table[table] = []
+                columns_by_table[table].append(item)
+
+        # Display tables
+        if tables_found:
+            lines.append("**📋 Tables:**")
+            for table in sorted(tables_found):
+                lines.append(f"- `{table}`")
+            lines.append("")
+
+        # Display columns grouped by table
+        if columns_by_table:
+            lines.append("**📊 Columns:**")
+            for table, columns in sorted(columns_by_table.items()):
+                lines.append(f"\n*Table: `{table}`*")
+                for col in columns:
+                    col_name = col['name']
+                    col_type = col.get('data_type', 'unknown')
+                    similarity = col.get('similarity', 0)
+
+                    # Show column with type and similarity score
+                    lines.append(f"  - `{col_name}` ({col_type}) - relevance: {similarity:.2f}")
+            lines.append("")
+
+        # Add summary
+        lines.append(f"\n📌 **Retrieved:** {len(tables_found)} tables, {sum(len(cols) for cols in columns_by_table.values())} columns")
 
         return "\n".join(lines)

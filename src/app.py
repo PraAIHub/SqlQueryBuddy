@@ -416,8 +416,15 @@ class QueryBuddyApp:
             # Build enriched RAG display with query plan state
             plan_str = self.context_manager.query_plan.to_context_string()
             rag_display = rag_context
+
             if plan_str:
-                rag_display = f"{rag_context}\n\n---\n**{plan_str}**"
+                # Format query plan nicely
+                rag_display = (
+                    f"{rag_context}\n\n"
+                    f"---\n\n"
+                    f"### 🔄 Active Query State:\n"
+                    f"{plan_str.replace('Active Query State: ', '').replace(' | ', '\n- ')}\n"
+                )
 
             chat_history.append({"role": "user", "content": user_message})
             chat_history.append({"role": "assistant", "content": response_text})
