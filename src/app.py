@@ -418,12 +418,13 @@ class QueryBuddyApp:
             rag_display = rag_context
 
             if plan_str:
-                # Format query plan nicely
+                # Format query plan nicely (extract replace outside f-string to avoid backslash issue)
+                formatted_plan = plan_str.replace('Active Query State: ', '').replace(' | ', '\n- ')
                 rag_display = (
                     f"{rag_context}\n\n"
                     f"---\n\n"
                     f"### 🔄 Active Query State:\n"
-                    f"{plan_str.replace('Active Query State: ', '').replace(' | ', '\n- ')}\n"
+                    f"{formatted_plan}\n"
                 )
 
             chat_history.append({"role": "user", "content": user_message})
