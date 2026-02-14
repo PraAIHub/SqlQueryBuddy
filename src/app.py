@@ -520,11 +520,13 @@ class QueryBuddyApp:
 
     def create_interface(self) -> gr.Blocks:
         """Create Gradio interface"""
-        with gr.Blocks(title="SQL Query Buddy") as demo:
-            gr.Markdown("# SQL Query Buddy")
+        with gr.Blocks(title="SQL Query Buddy", theme=gr.themes.Soft()) as demo:
             gr.Markdown(
-                "Ask questions about your database in natural language. "
-                "Get SQL queries, results, explanations, and AI-driven insights."
+                "# SQL Query Buddy\n"
+                "**Conversational AI for Smart Data Insights** | "
+                "RAG + LangChain + FAISS\n\n"
+                "Ask questions about your database in plain English. "
+                "Get optimized SQL, instant results, visualizations, and AI-driven business insights."
             )
 
             with gr.Tabs():
@@ -689,7 +691,11 @@ class QueryBuddyApp:
                 ex8: "List customers who haven't ordered anything in the last 3 months",
             }
             for btn, query in example_queries.items():
-                btn.click(lambda q=query: q, outputs=[msg])
+                btn.click(
+                    lambda q=query: q, outputs=[msg]
+                ).then(
+                    self.process_query, [msg, chatbot], query_outputs
+                )
 
         return demo
 
@@ -716,7 +722,6 @@ def main():
         server_name=settings.server_host,
         server_port=settings.gradio_server_port,
         share=settings.gradio_share,
-        theme=gr.themes.Soft(),
     )
 
 

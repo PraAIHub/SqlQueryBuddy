@@ -404,6 +404,24 @@ class SQLGeneratorMock:
                 "orders with order_items and filtering with HAVING."
             ),
         },
+        # Salesperson / top seller (mapped to customers with most orders)
+        {
+            "keywords": ["salesperson", "sales rep", "seller", "representative", "generated the highest sales"],
+            "sql": (
+                "SELECT c.name AS salesperson, c.region, "
+                "COUNT(o.order_id) AS total_orders, "
+                "SUM(o.total_amount) AS total_sales "
+                "FROM customers c "
+                "JOIN orders o ON c.customer_id = o.customer_id "
+                "GROUP BY c.customer_id, c.name, c.region "
+                "ORDER BY total_sales DESC LIMIT 10;"
+            ),
+            "explanation": (
+                "This query identifies the top customers by total sales volume, "
+                "ranked by the sum of their order amounts. In this retail schema, "
+                "customers are used as the closest proxy for salespersons."
+            ),
+        },
         # Unique products sold (general)
         {
             "keywords": ["unique", "sold", "distinct"],

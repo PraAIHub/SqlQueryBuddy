@@ -71,7 +71,7 @@ See all 10+ examples in [demo_queries.md](demo_queries.md)
 | Frontend | Gradio 4.0 |
 | AI Engine | LangChain + GPT-4 |
 | Vector Search | FAISS |
-| Backend | Python + FastAPI |
+| Backend | Python + Gradio |
 | Database | SQLite / PostgreSQL / MySQL |
 
 ## Project Structure
