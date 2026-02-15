@@ -826,84 +826,6 @@ class QueryBuddyApp:
                     border-color: #9ca3af !important;
                 }
             </style>
-            <script>
-                // Force chatbot to scroll to bottom - improved for Gradio 6.x
-                function scrollChatbotToBottom() {
-                    // Try multiple selectors for Gradio 6.x compatibility
-                    const selectors = [
-                        '.chatbot .overflow-y-auto',
-                        '.chatbot [class*="overflow"]',
-                        'gradio-chatbot .overflow-y-auto',
-                        '[data-testid="chatbot"] .overflow-y-auto',
-                        '.chatbot > div > div'
-                    ];
-
-                    let scrolled = false;
-                    for (const selector of selectors) {
-                        const elements = document.querySelectorAll(selector);
-                        elements.forEach(element => {
-                            if (element && element.scrollHeight > element.clientHeight) {
-                                element.scrollTop = element.scrollHeight;
-                                scrolled = true;
-                                console.log('Scrolled chatbot using selector:', selector);
-                            }
-                        });
-                        if (scrolled) break;
-                    }
-
-                    if (!scrolled) {
-                        console.log('No scrollable chatbot element found');
-                    }
-                }
-
-                // Use MutationObserver to detect when chatbot content changes
-                function setupChatbotAutoScroll() {
-                    // Try to find chatbot container with multiple approaches
-                    const chatbotSelectors = [
-                        '.chatbot',
-                        'gradio-chatbot',
-                        '[data-testid="chatbot"]'
-                    ];
-
-                    let chatbotContainer = null;
-                    for (const selector of chatbotSelectors) {
-                        chatbotContainer = document.querySelector(selector);
-                        if (chatbotContainer) {
-                            console.log('Found chatbot container using:', selector);
-                            break;
-                        }
-                    }
-
-                    if (chatbotContainer) {
-                        const observer = new MutationObserver((mutations) => {
-                            // Scroll to bottom whenever chatbot content changes
-                            requestAnimationFrame(scrollChatbotToBottom);
-                        });
-
-                        observer.observe(chatbotContainer, {
-                            childList: true,
-                            subtree: true,
-                            characterData: true
-                        });
-
-                        console.log('Chatbot auto-scroll observer set up successfully');
-                    } else {
-                        console.log('Could not find chatbot container for auto-scroll');
-                    }
-                }
-
-                // Initialize when page loads
-                if (document.readyState === 'loading') {
-                    document.addEventListener('DOMContentLoaded', setupChatbotAutoScroll);
-                } else {
-                    setupChatbotAutoScroll();
-                }
-
-                // Also try multiple times to ensure Gradio is ready
-                setTimeout(setupChatbotAutoScroll, 1000);
-                setTimeout(setupChatbotAutoScroll, 2000);
-                setTimeout(setupChatbotAutoScroll, 3000);
-            </script>
             """)
 
             gr.Markdown(
@@ -1199,12 +1121,36 @@ What you'll see:
                 process_with_loading, [msg, chatbot], query_outputs
             )
 
+            # JavaScript to scroll chatbot to bottom
+            scroll_js = """
+            function() {
+                setTimeout(function() {
+                    const selectors = [
+                        '.chatbot .overflow-y-auto',
+                        '.chatbot [class*="scroll"]',
+                        'gradio-chatbot .overflow-y-auto'
+                    ];
+                    for (let selector of selectors) {
+                        const elements = document.querySelectorAll(selector);
+                        elements.forEach(el => {
+                            if (el && el.scrollHeight > el.clientHeight) {
+                                el.scrollTop = el.scrollHeight;
+                                console.log('Scrolled using:', selector);
+                            }
+                        });
+                    }
+                }, 100);
+            }
+            """
+
             submit_btn.click(
                 lambda: [gr.update(interactive=False)] * 9,  # Disable submit + 8 example buttons
                 outputs=[submit_btn, ex1, ex2, ex3, ex4, ex5, ex6, ex7, ex8],
                 queue=False
             ).then(
                 process_with_loading, [msg, chatbot], query_outputs
+            ).then(
+                None, None, None, js=scroll_js
             )
 
             def clear_chat():
@@ -1317,6 +1263,9 @@ What you'll see:
                     fn=lambda ch, q=query: handle_example_click(q, ch),
                     inputs=[chatbot],
                     outputs=example_outputs,
+                ).then(
+                    # Third: Scroll chatbot to bottom
+                    None, None, None, js=scroll_js
                 )
 
         return demo
