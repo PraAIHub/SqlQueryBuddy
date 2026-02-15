@@ -47,8 +47,11 @@ class QueryBuddyApp:
         self.context_manager = ContextManager()
 
         # Track LLM mode for status display
+        _placeholder_keys = {"your-api-key-here", "sk-xxx", "your_api_key", ""}
         self.using_real_llm = bool(
-            settings.openai_api_key and settings.openai_api_key != ""
+            settings.openai_api_key
+            and settings.openai_api_key.strip().lower() not in _placeholder_keys
+            and settings.openai_api_key.startswith("sk-")
         )
         logger.info(f"OPENAI_MODEL: {settings.openai_model} | LLM enabled: {self.using_real_llm}")
 
@@ -434,7 +437,7 @@ class QueryBuddyApp:
                 and self.using_real_llm
                 and any(
                     hint in result.get("error", "").lower()
-                    for hint in ["429", "quota", "rate limit", "rate_limit"]
+                    for hint in ["429", "quota", "rate limit", "rate_limit", "401", "403", "authentication", "unauthorized", "invalid api key", "invalid_api_key"]
                 )
             ):
                 result = self.mock_generator.generate(
@@ -1569,9 +1572,9 @@ class QueryBuddyApp:
 
 
 def create_sample_db():
-    """Create sample database if it doesn't exist"""
+    """Create sample database if it doesn't exist or is empty"""
     db_path = settings.database_url.replace("sqlite:///", "")
-    if not os.path.exists(db_path):
+    if not os.path.exists(db_path) or os.path.getsize(db_path) == 0:
         SQLiteDatabase.create_sample_database(db_path)
 
 
