@@ -1085,13 +1085,20 @@ What you'll see:
                         "- **Context retention** for multi-turn conversations\n"
                     )
 
+            # Hidden textbox to trigger scroll via JavaScript
+            scroll_trigger = gr.Textbox(visible=False, value="0")
+
             # Wrapper function to handle loading states
             def process_with_loading(user_message, chat_history):
                 """Process query and manage button states during execution"""
                 # Call the actual process_query function
                 results = self.process_query(user_message, chat_history)
 
-                # Return results + re-enable all interactive components + dashboard update
+                # Generate timestamp for scroll trigger
+                import time
+                scroll_timestamp = str(time.time())
+
+                # Return results + re-enable all interactive components + dashboard update + scroll trigger
                 return list(results) + [
                     gr.update(interactive=True),   # submit_btn
                     gr.update(interactive=True),   # ex1
@@ -1103,14 +1110,50 @@ What you'll see:
                     gr.update(interactive=True),   # ex7
                     gr.update(interactive=True),   # ex8
                     self._build_dashboard_overview(),  # dashboard_view
+                    scroll_timestamp,  # scroll_trigger - triggers JS on change
                 ]
 
-            # All outputs including button states, dashboard, and filters
+            # All outputs including button states, dashboard, filters, and scroll trigger
             query_outputs = [
                 msg, chatbot, chart_output, insights_output,
                 history_output, rag_output, sql_output, filter_section,
-                submit_btn, ex1, ex2, ex3, ex4, ex5, ex6, ex7, ex8, dashboard_view
+                submit_btn, ex1, ex2, ex3, ex4, ex5, ex6, ex7, ex8, dashboard_view,
+                scroll_trigger
             ]
+
+            # JavaScript to scroll chatbot to bottom (triggered by scroll_trigger change)
+            scroll_js = """
+            function() {
+                setTimeout(function() {
+                    console.log('Scroll trigger activated');
+                    const selectors = [
+                        '.chatbot .overflow-y-auto',
+                        '.chatbot [class*="scroll"]',
+                        'gradio-chatbot .overflow-y-auto',
+                        '.chatbot > div > div'
+                    ];
+                    let found = false;
+                    for (let selector of selectors) {
+                        const elements = document.querySelectorAll(selector);
+                        elements.forEach(el => {
+                            if (el && el.scrollHeight > el.clientHeight) {
+                                el.scrollTop = el.scrollHeight;
+                                console.log('✅ Scrolled to bottom using:', selector);
+                                found = true;
+                            }
+                        });
+                        if (found) break;
+                    }
+                    if (!found) {
+                        console.log('❌ No scrollable chatbot element found');
+                    }
+                }, 150);
+                return null;
+            }
+            """
+
+            # Attach scroll JavaScript to scroll_trigger changes
+            scroll_trigger.change(None, None, None, js=scroll_js)
 
             # Event handlers with loading state management
             msg.submit(
@@ -1121,36 +1164,12 @@ What you'll see:
                 process_with_loading, [msg, chatbot], query_outputs
             )
 
-            # JavaScript to scroll chatbot to bottom
-            scroll_js = """
-            function() {
-                setTimeout(function() {
-                    const selectors = [
-                        '.chatbot .overflow-y-auto',
-                        '.chatbot [class*="scroll"]',
-                        'gradio-chatbot .overflow-y-auto'
-                    ];
-                    for (let selector of selectors) {
-                        const elements = document.querySelectorAll(selector);
-                        elements.forEach(el => {
-                            if (el && el.scrollHeight > el.clientHeight) {
-                                el.scrollTop = el.scrollHeight;
-                                console.log('Scrolled using:', selector);
-                            }
-                        });
-                    }
-                }, 100);
-            }
-            """
-
             submit_btn.click(
                 lambda: [gr.update(interactive=False)] * 9,  # Disable submit + 8 example buttons
                 outputs=[submit_btn, ex1, ex2, ex3, ex4, ex5, ex6, ex7, ex8],
                 queue=False
             ).then(
                 process_with_loading, [msg, chatbot], query_outputs
-            ).then(
-                None, None, None, js=scroll_js
             )
 
             def clear_chat():
@@ -1210,7 +1229,11 @@ What you'll see:
                 # Process the query
                 results = self.process_query(query_text, chat_history)
 
-                # Return results + re-enable all buttons + dashboard
+                # Generate timestamp for scroll trigger
+                import time
+                scroll_timestamp = str(time.time())
+
+                # Return results + re-enable all buttons + dashboard + scroll trigger
                 # Results: msg(""), chatbot, chart, insights, history, rag, sql, filter_section (8 items)
                 # But we want query_text for msg, so skip results[0]
                 return [query_text] + list(results[1:]) + [
@@ -1224,6 +1247,7 @@ What you'll see:
                     gr.update(interactive=True),   # ex7
                     gr.update(interactive=True),   # ex8
                     self._build_dashboard_overview(),  # dashboard_view
+                    scroll_timestamp,  # scroll_trigger
                 ]
 
             example_queries = {
@@ -1259,13 +1283,10 @@ What you'll see:
                     outputs=[msg, submit_btn, ex1, ex2, ex3, ex4, ex5, ex6, ex7, ex8],
                     queue=False  # Instant disable
                 ).then(
-                    # Second: Process query and re-enable all buttons
+                    # Second: Process query and re-enable all buttons (scroll_trigger updated here)
                     fn=lambda ch, q=query: handle_example_click(q, ch),
                     inputs=[chatbot],
                     outputs=example_outputs,
-                ).then(
-                    # Third: Scroll chatbot to bottom
-                    None, None, None, js=scroll_js
                 )
 
         return demo
