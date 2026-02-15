@@ -50,6 +50,7 @@ class QueryBuddyApp:
         self.using_real_llm = bool(
             settings.openai_api_key and settings.openai_api_key != ""
         )
+        logger.info(f"OPENAI_MODEL: {settings.openai_model} | LLM enabled: {self.using_real_llm}")
 
         # Initialize SQL generator (with mock fallback for API errors)
         self.mock_generator = SQLGeneratorMock()
@@ -764,7 +765,7 @@ class QueryBuddyApp:
     def _build_status_text(self) -> str:
         """Build system status text"""
         llm_status = (
-            f"GPT-4 ({settings.openai_model})"
+            f"Connected ({settings.openai_model})"
             if self.using_real_llm
             else "Mock (demo mode - set OPENAI_API_KEY for full LLM)"
         )
@@ -1192,12 +1193,15 @@ What you'll see:
                     )
                     refresh_dashboard = gr.Button("🔄 Refresh Stats", variant="secondary")
 
-                # Tab 3: Schema Explorer
+                # Tab 3: Schema Explorer (2-column layout)
                 with gr.Tab("📋 Schema & Data"):
-                    gr.Markdown("## 🗄️ Database Schema")
-                    gr.Markdown(self._build_schema_explorer_text())
-                    gr.Markdown("## 📊 Sample Data Preview")
-                    gr.Markdown(self._build_sample_data_text())
+                    with gr.Row():
+                        with gr.Column(scale=1):
+                            gr.Markdown("## 🗄️ Database Schema")
+                            gr.Markdown(self._build_schema_explorer_text())
+                        with gr.Column(scale=1):
+                            gr.Markdown("## 📊 Sample Data Preview")
+                            gr.Markdown(self._build_sample_data_text())
 
                 # Tab 4: About & Status
                 with gr.Tab("ℹ️ About"):

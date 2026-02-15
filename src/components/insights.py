@@ -59,7 +59,7 @@ def _sanitize_prompt_input(text: str, max_length: int = 500) -> str:
 class InsightGenerator:
     """Generates AI-driven insights from query results"""
 
-    def __init__(self, openai_api_key: str, model: str = "gpt-4"):
+    def __init__(self, openai_api_key: str, model: str = "gpt-4o-mini"):
         if ChatOpenAI is None:
             raise ImportError("LangChain OpenAI integration not available")
         self.llm = ChatOpenAI(

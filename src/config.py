@@ -14,7 +14,7 @@ class Settings(BaseSettings):
 
     # OpenAI Configuration
     openai_api_key: str = Field(default="", alias="OPENAI_API_KEY")
-    openai_model: str = Field(default="gpt-4", alias="OPENAI_MODEL")
+    openai_model: str = Field(default="gpt-4o-mini", alias="OPENAI_MODEL")
 
     # Database Configuration
     database_type: Literal["sqlite", "postgresql", "mysql"] = Field(
