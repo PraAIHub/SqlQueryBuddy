@@ -1125,20 +1125,20 @@ What you'll see:
             scroll_js = """
             function() {
                 setTimeout(function() {
-                    console.log('Scroll trigger activated');
+                    console.log('🔄 Scroll trigger activated');
                     const selectors = [
-                        '.chatbot .overflow-y-auto',
-                        '.chatbot [class*="scroll"]',
-                        'gradio-chatbot .overflow-y-auto',
-                        '.chatbot > div > div'
+                        'div[aria-label="chatbot conversation"]',
+                        '.bubble-wrap',
+                        '.message-wrap',
+                        'div[role="log"]'
                     ];
                     let found = false;
                     for (let selector of selectors) {
                         const elements = document.querySelectorAll(selector);
                         elements.forEach(el => {
-                            if (el && el.scrollHeight > el.clientHeight) {
+                            if (el) {
                                 el.scrollTop = el.scrollHeight;
-                                console.log('✅ Scrolled to bottom using:', selector);
+                                console.log('✅ Scrolled to bottom using:', selector, 'scrollTop:', el.scrollTop);
                                 found = true;
                             }
                         });
