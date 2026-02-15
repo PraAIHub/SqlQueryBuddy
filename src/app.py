@@ -912,8 +912,8 @@ class QueryBuddyApp:
                     overflow-x: hidden;
                 }
 
-                /* Secondary button styling - ghost/outline (Export, Clear) */
-                button.secondary {
+                /* Secondary button styling - ghost/outline (Export, Clear only) */
+                button.secondary:not(.quick-start-btn) {
                     background: transparent !important;
                     border: 1px solid #e5e7eb !important;
                     color: #9ca3af !important;
@@ -921,14 +921,18 @@ class QueryBuddyApp:
                     min-height: 32px !important;
                     padding: 4px 12px !important;
                 }
-                button.secondary:hover {
+                button.secondary:not(.quick-start-btn):hover {
                     background: #f9fafb !important;
                     border-color: #9ca3af !important;
                     color: #6b7280 !important;
                 }
 
-                /* Quick Start chip buttons - distinct from ghost secondary */
-                .quick-start-btn button {
+                /* Quick Start chip buttons - override all Gradio variants */
+                .quick-start-btn,
+                .quick-start-btn button,
+                .quick-start-btn button.secondary,
+                .gradio-container .quick-start-btn button,
+                button.quick-start-btn {
                     background: #f5f3ff !important;
                     border: 1px solid #c4b5fd !important;
                     color: #6d28d9 !important;
@@ -938,9 +942,13 @@ class QueryBuddyApp:
                     padding: 4px 12px !important;
                     border-radius: 16px !important;
                 }
-                .quick-start-btn button:hover {
+                .quick-start-btn:hover,
+                .quick-start-btn button:hover,
+                .quick-start-btn button.secondary:hover,
+                button.quick-start-btn:hover {
                     background: #ede9fe !important;
                     border-color: #8b5cf6 !important;
+                    color: #5b21b6 !important;
                 }
             </style>
             """)
