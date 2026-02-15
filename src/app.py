@@ -1049,10 +1049,10 @@ class QueryBuddyApp:
                         border: 1px solid rgba(255,255,255,0.3);
                         box-shadow: 0 4px 12px rgba(0,0,0,0.1);'>
                 <div style='font-weight: 700; margin-bottom: 5px; color: #7c3aed; font-size: 13px;'>
-                    🔍 RAG + Query Optimizer
+                    🔍 RAG + Query Advisor
                 </div>
                 <div style='font-size: 13px; color: #4b5563; line-height: 1.4;'>
-                    Semantic schema search + performance optimization built-in
+                    FAISS semantic schema search + performance suggestions
                 </div>
             </div>
         </div>
@@ -1256,16 +1256,41 @@ class QueryBuddyApp:
 <div style='max-width: 720px; margin: 0 auto;'>
     <h2 style='margin-bottom: 4px;'>SQL Query Buddy</h2>
     <p style='color: #6b7280; margin-top: 0; font-size: 14px;'>
-        Conversational AI for Smart Data Insights
+        Conversational AI for Smart Data Insights &mdash; Built for the Codecademy GenAI Bootcamp Contest
     </p>
 
-    <p style='line-height: 1.7; font-size: 14px; color: #374151;'>
-        SQL Query Buddy lets <strong>non-technical users</strong> explore databases
-        using plain English. Ask a question, get an optimized SQL query, a
-        chart, and AI-generated business insights — all in one conversation.
+    <h3 style='margin-bottom: 8px;'>The Problem</h3>
+    <div style='background: #fef2f2; border-left: 3px solid #ef4444; padding: 12px 14px; border-radius: 0 8px 8px 0; margin-bottom: 14px; font-size: 13px; color: #374151; line-height: 1.6;'>
+        Data analysts spend <strong>60% of their time</strong> writing SQL queries instead of
+        analyzing insights. Non-technical stakeholders can&rsquo;t access data without engineering
+        support, creating bottlenecks that delay decisions by days.
+    </div>
+
+    <h3 style='margin-bottom: 8px;'>Our Solution</h3>
+    <div style='background: #f0fdf4; border-left: 3px solid #22c55e; padding: 12px 14px; border-radius: 0 8px 8px 0; margin-bottom: 14px; font-size: 13px; color: #374151; line-height: 1.6;'>
+        SQL Query Buddy lets <strong>anyone</strong> ask questions in plain English and get
+        optimized SQL, visual charts, and AI-generated business insights &mdash; all in
+        under 5 seconds. <strong>Zero SQL knowledge required.</strong>
+    </div>
+
+    <h3 style='margin-bottom: 8px;'>How It Works (RAG Pipeline)</h3>
+    <div style='background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 8px; padding: 14px; margin-bottom: 6px; font-size: 12px; font-family: monospace; color: #374151; line-height: 1.8;'>
+        <strong style='color: #7c3aed;'>User Query</strong> &rarr; NLP (intent + entities)<br/>
+        &nbsp;&nbsp;&darr;<br/>
+        <strong style='color: #7c3aed;'>TF-IDF Embedding</strong> &rarr; FAISS Cosine Similarity Search<br/>
+        &nbsp;&nbsp;&darr;<br/>
+        <strong style='color: #7c3aed;'>Retrieved Schema</strong>: top-5 relevant tables &amp; columns (with confidence scores)<br/>
+        &nbsp;&nbsp;&darr;<br/>
+        <strong style='color: #7c3aed;'>LangChain + GPT-4o-mini</strong> &rarr; SQL generation from schema context + conversation history<br/>
+        &nbsp;&nbsp;&darr;<br/>
+        <strong style='color: #7c3aed;'>Validate &rarr; Execute &rarr; Chart &rarr; AI Insights</strong>
+    </div>
+    <p style='font-size: 12px; color: #6b7280; margin-top: 0; margin-bottom: 14px;'>
+        <strong>Why RAG matters:</strong> Instead of sending the entire database schema to the LLM,
+        FAISS vector search retrieves only the relevant tables and columns. This reduces hallucinated
+        table names, cuts token costs, and improves SQL accuracy.
     </p>
 
-    <h3 style='margin-bottom: 8px;'>How It Works</h3>
     <div style='display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 16px;'>
         <div style='background: #f9fafb; border-radius: 8px; padding: 12px; border: 1px solid #e5e7eb;'>
             <div style='font-weight: 600; font-size: 13px; color: #7c3aed; margin-bottom: 4px;'>1. Ask</div>
@@ -1277,7 +1302,7 @@ class QueryBuddyApp:
         </div>
         <div style='background: #f9fafb; border-radius: 8px; padding: 12px; border: 1px solid #e5e7eb;'>
             <div style='font-weight: 600; font-size: 13px; color: #7c3aed; margin-bottom: 4px;'>3. Generate</div>
-            <div style='font-size: 12px; color: #4b5563;'>LangChain + GPT-4 writes optimized SQL from the schema context.</div>
+            <div style='font-size: 12px; color: #4b5563;'>LangChain + LLM writes optimized SQL from the schema context.</div>
         </div>
         <div style='background: #f9fafb; border-radius: 8px; padding: 12px; border: 1px solid #e5e7eb;'>
             <div style='font-weight: 600; font-size: 13px; color: #7c3aed; margin-bottom: 4px;'>4. Analyze</div>
@@ -1285,40 +1310,60 @@ class QueryBuddyApp:
         </div>
     </div>
 
+    <h3 style='margin-bottom: 8px;'>Safety &amp; Guardrails</h3>
+    <div style='background: #fefce8; border: 1px solid #fde68a; border-radius: 8px; padding: 12px; margin-bottom: 14px; font-size: 12px; color: #374151;'>
+        <div style='display: grid; grid-template-columns: 1fr 1fr; gap: 6px;'>
+            <div>&#x1f6e1;&#xfe0f; <strong>Read-only DB</strong> &mdash; query_only=ON</div>
+            <div>&#x1f6ab; <strong>SQL Validation</strong> &mdash; DROP/DELETE/ALTER blocked</div>
+            <div>&#x1f50d; <strong>Comment Stripping</strong> &mdash; Prevents bypass via SQL comments</div>
+            <div>&#x1f9f9; <strong>Prompt Sanitization</strong> &mdash; Injection markers stripped</div>
+            <div>&#x23f1;&#xfe0f; <strong>Timeout Protection</strong> &mdash; 30s query limit</div>
+            <div>&#x1f4ca; <strong>Row Limits</strong> &mdash; Max 1,000 rows per result</div>
+        </div>
+    </div>
+
     <h3 style='margin-bottom: 8px;'>Key Features</h3>
     <table style='width: 100%; border-collapse: collapse; font-size: 13px; margin-bottom: 16px;'>
         <tr style='border-bottom: 1px solid #e5e7eb;'>
             <td style='padding: 6px 8px; font-weight: 600; color: #374151;'>SQL Generation</td>
-            <td style='padding: 6px 8px; color: #6b7280;'>LangChain + GPT-4 with auto-fix retry on errors</td>
+            <td style='padding: 6px 8px; color: #6b7280;'>LangChain + LLM with auto-fix retry on errors</td>
         </tr>
         <tr style='border-bottom: 1px solid #e5e7eb;'>
             <td style='padding: 6px 8px; font-weight: 600; color: #374151;'>RAG Retrieval</td>
-            <td style='padding: 6px 8px; color: #6b7280;'>FAISS vector DB for semantic schema matching</td>
+            <td style='padding: 6px 8px; color: #6b7280;'>FAISS vector DB with TF-IDF embeddings for semantic schema matching</td>
         </tr>
         <tr style='border-bottom: 1px solid #e5e7eb;'>
             <td style='padding: 6px 8px; font-weight: 600; color: #374151;'>AI Insights</td>
-            <td style='padding: 6px 8px; color: #6b7280;'>Trends, anomalies, and recommendations (LLM + local fallback)</td>
+            <td style='padding: 6px 8px; color: #6b7280;'>Trends, anomalies, top performers, concentration risk (LLM + local fallback)</td>
         </tr>
         <tr style='border-bottom: 1px solid #e5e7eb;'>
-            <td style='padding: 6px 8px; font-weight: 600; color: #374151;'>Query Optimizer</td>
-            <td style='padding: 6px 8px; color: #6b7280;'>Performance checks, assumptions, and next-step suggestions</td>
+            <td style='padding: 6px 8px; font-weight: 600; color: #374151;'>Query Advisor</td>
+            <td style='padding: 6px 8px; color: #6b7280;'>Performance suggestions, assumptions, and next-step recommendations</td>
         </tr>
         <tr style='border-bottom: 1px solid #e5e7eb;'>
             <td style='padding: 6px 8px; font-weight: 600; color: #374151;'>Context Memory</td>
-            <td style='padding: 6px 8px; color: #6b7280;'>Multi-turn conversations with query plan tracking</td>
+            <td style='padding: 6px 8px; color: #6b7280;'>Multi-turn conversations with structured QueryPlan tracking</td>
         </tr>
         <tr>
             <td style='padding: 6px 8px; font-weight: 600; color: #374151;'>Visualization</td>
-            <td style='padding: 6px 8px; color: #6b7280;'>Auto-charts: time series, bar charts, single-value cards</td>
+            <td style='padding: 6px 8px; color: #6b7280;'>Auto-charts: time series, bar charts, single-value metric cards</td>
         </tr>
     </table>
+
+    <h3 style='margin-bottom: 8px;'>Demo Database</h3>
+    <p style='font-size: 12px; color: #6b7280; margin-bottom: 14px;'>
+        Pre-loaded with a retail commerce dataset: <strong>150 customers</strong>,
+        <strong>25 products</strong> (5 categories), <strong>2,500 orders</strong>,
+        and <strong>~6,500 order items</strong> spanning 2023&ndash;2025.
+        All Quick Start queries work against this data.
+    </p>
 
     <h3 style='margin-bottom: 8px;'>Tech Stack</h3>
     <div style='display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 16px;'>
         <span style='background: #ede9fe; color: #5b21b6; padding: 3px 10px; border-radius: 12px; font-size: 11px; font-weight: 500;'>Python</span>
         <span style='background: #dbeafe; color: #1e40af; padding: 3px 10px; border-radius: 12px; font-size: 11px; font-weight: 500;'>Gradio</span>
         <span style='background: #dcfce7; color: #166534; padding: 3px 10px; border-radius: 12px; font-size: 11px; font-weight: 500;'>LangChain</span>
-        <span style='background: #fef3c7; color: #92400e; padding: 3px 10px; border-radius: 12px; font-size: 11px; font-weight: 500;'>GPT-4</span>
+        <span style='background: #fef3c7; color: #92400e; padding: 3px 10px; border-radius: 12px; font-size: 11px; font-weight: 500;'>GPT-4o-mini</span>
         <span style='background: #e0e7ff; color: #3730a3; padding: 3px 10px; border-radius: 12px; font-size: 11px; font-weight: 500;'>FAISS</span>
         <span style='background: #f3f4f6; color: #374151; padding: 3px 10px; border-radius: 12px; font-size: 11px; font-weight: 500;'>SQLite</span>
         <span style='background: #fce7f3; color: #9d174d; padding: 3px 10px; border-radius: 12px; font-size: 11px; font-weight: 500;'>Matplotlib</span>
