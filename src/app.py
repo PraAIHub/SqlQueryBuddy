@@ -1210,11 +1210,11 @@ What you'll see:
             def handle_export():
                 path = self.export_csv()
                 if path:
-                    return gr.File(value=path, visible=True)
+                    return gr.File(value=path, visible=True), gr.update(interactive=True)
                 gr.Info("No results to export. Run a query first.")
-                return gr.File(visible=False)
+                return gr.File(visible=False), gr.update(interactive=True)
 
-            export_btn.click(handle_export, outputs=[export_file])
+            export_btn.click(handle_export, outputs=[export_file, msg])
 
             # Enable/disable Send button based on textbox content
             def update_send_button(text):
