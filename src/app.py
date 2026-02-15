@@ -1180,10 +1180,10 @@ What you'll see:
                 # Process the query
                 results = self.process_query(query_text, chat_history)
 
-                # Return results + re-enable all buttons + update textbox + dashboard
-                # Results now include: msg, chatbot, chart, insights, history, rag, sql, filter_section
-                return [query_text] + list(results) + [
-                    gr.update(interactive=True),   # msg textbox (already in results[0])
+                # Return results + re-enable all buttons + dashboard
+                # Results: msg(""), chatbot, chart, insights, history, rag, sql, filter_section (8 items)
+                # But we want query_text for msg, so skip results[0]
+                return [query_text] + list(results[1:]) + [
                     gr.update(interactive=True),   # submit_btn
                     gr.update(interactive=True),   # ex1
                     gr.update(interactive=True),   # ex2
