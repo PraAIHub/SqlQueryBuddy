@@ -1716,8 +1716,8 @@ class QueryBuddyApp:
 
                 # Return results + re-enable all buttons + dashboard + scroll trigger
                 # Results: msg(""), chatbot, chart, insights, history, rag, sql, filter_section (8 items)
-                # But we want query_text for msg AND re-enable it, so skip results[0]
-                return [gr.update(value=query_text, interactive=True)] + list(results[1:]) + [
+                # Clear textbox (query already visible in chat history)
+                return [gr.update(value="", interactive=True)] + list(results[1:]) + [
                     gr.update(interactive=True),   # submit_btn
                     gr.update(interactive=True),   # export_btn
                     gr.update(interactive=True),   # clear
