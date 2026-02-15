@@ -486,7 +486,18 @@ class QueryBuddyApp:
                     response_lines.append(f"- {s['suggestion']}")
 
             # Generate AI insights (displayed in dedicated panel)
-            insights_md = self.insight_generator.generate_insights(data, user_message)
+            # Try LLM first, fall back to local generator on error
+            try:
+                insights_md = self.insight_generator.generate_insights(data, user_message)
+                # If insights indicate API failure, try local fallback
+                if "AI Insights unavailable" in insights_md and self.using_real_llm:
+                    logger.warning("LLM insights failed, falling back to local generator")
+                    local_gen = LocalInsightGenerator()
+                    insights_md = local_gen.generate_insights(data, user_message)
+            except Exception as e:
+                logger.warning(f"Insight generation failed: {e}, using local fallback")
+                local_gen = LocalInsightGenerator()
+                insights_md = local_gen.generate_insights(data, user_message)
 
             # Update context and structured query plan
             response_text = "\n".join(response_lines)
