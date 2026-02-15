@@ -830,72 +830,99 @@ class QueryBuddyApp:
                 "**Conversational AI for Smart Data Insights** — Powered by RAG + LangChain + FAISS"
             )
 
-            # Hero Banner - Value Proposition
+            # Hero Banner - Value Proposition (Brightened & High Contrast)
             gr.HTML("""
-<div style='background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            padding: 24px 32px;
+<div style='background: linear-gradient(135deg, #7c3aed 0%, #a855f7 50%, #6366f1 100%);
+            padding: 20px 28px;
             border-radius: 12px;
-            color: white;
-            margin: 16px 0 24px 0;
-            box-shadow: 0 4px 12px rgba(102, 126, 234, 0.3);'>
-    <div style='font-size: 20px; font-weight: 700; margin-bottom: 12px; text-align: center;'>
-        💬 Ask Questions in Plain English, Get SQL-Powered Insights
-    </div>
-    <div style='display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 16px; margin-top: 16px;'>
-        <div style='background: rgba(255,255,255,0.15); padding: 14px; border-radius: 8px; backdrop-filter: blur(10px);'>
-            <div style='font-weight: 600; margin-bottom: 6px;'>🎯 No SQL Knowledge Needed</div>
-            <div style='font-size: 13px; opacity: 0.9;'>Ask questions like "Show me top customers" — we handle the rest</div>
+            margin: 16px 0 20px 0;
+            box-shadow: 0 8px 24px rgba(124, 58, 237, 0.25);
+            position: relative;'>
+    <!-- Brightness overlay -->
+    <div style='position: absolute; top: 0; left: 0; right: 0; bottom: 0;
+                background: linear-gradient(135deg, rgba(255,255,255,0.12) 0%, rgba(255,255,255,0.05) 100%);
+                border-radius: 12px; pointer-events: none;'></div>
+
+    <!-- Content -->
+    <div style='position: relative; z-index: 1;'>
+        <div style='font-size: 20px; font-weight: 700; margin-bottom: 14px; text-align: center;
+                    color: #ffffff; text-shadow: 0 2px 4px rgba(0,0,0,0.15);'>
+            💬 Ask Questions in Plain English, Get SQL-Powered Insights
         </div>
-        <div style='background: rgba(255,255,255,0.15); padding: 14px; border-radius: 8px; backdrop-filter: blur(10px);'>
-            <div style='font-weight: 600; margin-bottom: 6px;'>⚡ AI-Powered Insights</div>
-            <div style='font-size: 13px; opacity: 0.9;'>Get charts, trends, and business recommendations automatically</div>
+
+        <div style='display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px; margin-top: 14px;'>
+            <div style='background: rgba(255,255,255,0.95); padding: 14px; border-radius: 10px;
+                        border: 1px solid rgba(255,255,255,0.3);
+                        box-shadow: 0 4px 12px rgba(0,0,0,0.1);'>
+                <div style='font-weight: 700; margin-bottom: 6px; color: #7c3aed; font-size: 14px;'>
+                    🎯 No SQL Knowledge Needed
+                </div>
+                <div style='font-size: 13px; color: #4b5563; line-height: 1.4;'>
+                    Ask questions like "Show me top customers" — we handle the rest
+                </div>
+            </div>
+
+            <div style='background: rgba(255,255,255,0.95); padding: 14px; border-radius: 10px;
+                        border: 1px solid rgba(255,255,255,0.3);
+                        box-shadow: 0 4px 12px rgba(0,0,0,0.1);'>
+                <div style='font-weight: 700; margin-bottom: 6px; color: #7c3aed; font-size: 14px;'>
+                    ⚡ AI-Powered Insights
+                </div>
+                <div style='font-size: 13px; color: #4b5563; line-height: 1.4;'>
+                    Get charts, trends, and business recommendations automatically
+                </div>
+            </div>
+
+            <div style='background: rgba(255,255,255,0.95); padding: 14px; border-radius: 10px;
+                        border: 1px solid rgba(255,255,255,0.3);
+                        box-shadow: 0 4px 12px rgba(0,0,0,0.1);'>
+                <div style='font-weight: 700; margin-bottom: 6px; color: #7c3aed; font-size: 14px;'>
+                    🔍 RAG + Query Optimizer
+                </div>
+                <div style='font-size: 13px; color: #4b5563; line-height: 1.4;'>
+                    Semantic schema search + performance optimization built-in
+                </div>
+            </div>
         </div>
-        <div style='background: rgba(255,255,255,0.15); padding: 14px; border-radius: 8px; backdrop-filter: blur(10px);'>
-            <div style='font-weight: 600; margin-bottom: 6px;'>🔍 RAG + Query Optimizer</div>
-            <div style='font-size: 13px; opacity: 0.9;'>Semantic schema search + performance optimization built-in</div>
+
+        <div style='margin-top: 14px; padding: 10px 16px;
+                    background: rgba(255,255,255,0.25);
+                    border: 1px solid rgba(255,255,255,0.4);
+                    border-radius: 8px; text-align: center; font-size: 13px;
+                    color: #ffffff; font-weight: 500;'>
+            💡 <b>Get Started:</b> Try the example buttons below or type any question about your data
         </div>
-    </div>
-    <div style='margin-top: 16px; padding: 12px; background: rgba(255,255,255,0.2); border-radius: 8px; text-align: center; font-size: 14px;'>
-        💡 <b>Get Started:</b> Try the example buttons below or type any question about your data
     </div>
 </div>
 """)
 
-            # Status badges
+            # Compact status indicator (replaces large badges - info now in hero)
             if self.using_real_llm:
                 status_html = f"""
-                <div style='display: flex; justify-content: center; flex-wrap: wrap; margin: 16px 0;'>
-                    <div class='status-badge status-live'>
-                        <span>🚀</span>
-                        <span>Live LLM Mode</span>
-                        <span style='opacity: 0.8; font-size: 12px;'>({settings.openai_model})</span>
-                    </div>
-                    <div class='status-badge status-live'>
-                        <span>🗄️</span>
-                        <span>Database: {settings.database_type.upper()}</span>
-                    </div>
-                    <div class='status-badge status-live'>
-                        <span>⚡</span>
-                        <span>RAG: FAISS</span>
-                    </div>
+                <div style='text-align: center; font-size: 12px; color: #6b7280; margin: 8px 0 16px 0;'>
+                    <span style='background: #10b98120; padding: 4px 10px; border-radius: 12px; margin: 0 4px; font-weight: 500;'>
+                        ✅ Live: {settings.openai_model}
+                    </span>
+                    <span style='background: #f3f4f620; padding: 4px 10px; border-radius: 12px; margin: 0 4px;'>
+                        🗄️ {settings.database_type.upper()}
+                    </span>
+                    <span style='background: #f3f4f620; padding: 4px 10px; border-radius: 12px; margin: 0 4px;'>
+                        ⚡ FAISS
+                    </span>
                 </div>
                 """
             else:
                 status_html = f"""
-                <div style='display: flex; justify-content: center; flex-wrap: wrap; margin: 16px 0;'>
-                    <div class='status-badge status-demo'>
-                        <span>🎮</span>
-                        <span>Demo Mode</span>
-                        <span style='opacity: 0.8; font-size: 12px;'>(Mock SQL Generator)</span>
-                    </div>
-                    <div class='status-badge status-demo'>
-                        <span>🗄️</span>
-                        <span>Database: {settings.database_type.upper()}</span>
-                    </div>
-                    <div class='status-badge status-demo'>
-                        <span>💡</span>
-                        <span>Set OPENAI_API_KEY for full LLM</span>
-                    </div>
+                <div style='text-align: center; font-size: 12px; color: #6b7280; margin: 8px 0 16px 0;'>
+                    <span style='background: #f59e0b20; padding: 4px 10px; border-radius: 12px; margin: 0 4px; font-weight: 500;'>
+                        🎮 Demo Mode
+                    </span>
+                    <span style='background: #f3f4f620; padding: 4px 10px; border-radius: 12px; margin: 0 4px;'>
+                        🗄️ {settings.database_type.upper()}
+                    </span>
+                    <span style='opacity: 0.7; font-style: italic; margin-left: 8px;'>
+                        (Set OPENAI_API_KEY for full LLM)
+                    </span>
                 </div>
                 """
             gr.HTML(status_html)
@@ -916,10 +943,10 @@ class QueryBuddyApp:
                                 )
                             with gr.Row():
                                 submit_btn = gr.Button(
-                                    "🚀 Send", variant="primary", scale=2, interactive=False
+                                    "▶️ Run Query", variant="primary", scale=2, interactive=False, size="lg"
                                 )
-                                export_btn = gr.Button("📥 Export CSV", scale=1)
-                                clear = gr.Button("🗑️ Clear", scale=1)
+                                export_btn = gr.Button("📥 Export", variant="secondary", scale=1, size="sm")
+                                clear = gr.Button("🗑️ Clear", variant="secondary", scale=1, size="sm")
 
                             export_file = gr.File(label="Download Results", visible=False)
 
@@ -947,7 +974,16 @@ class QueryBuddyApp:
                         with gr.Column(scale=5):
                             with gr.Tabs():
                                 with gr.Tab("📊 Results"):
-                                    gr.Markdown("### Query Results")
+                                    gr.Markdown("""
+### Query Results
+
+**👉 Run a query to see results here**
+
+Charts appear automatically when your query returns:
+- 📈 **Time series data** (revenue over time, monthly trends)
+- 📊 **Category comparisons** (sales by region, products by category)
+- 🔢 **Single metrics** (total count, sum, average)
+                                    """)
 
                                     # Quick filters
                                     filter_section = gr.Markdown(
@@ -959,18 +995,24 @@ class QueryBuddyApp:
                                         label="Visualization",
                                         show_label=False,
                                     )
-                                    gr.Markdown(
-                                        "*Charts appear automatically when query returns numeric data. "
-                                        "Supports time series and categorical comparisons.*"
-                                    )
 
                                 with gr.Tab("🔍 SQL"):
-                                    gr.Markdown("### Generated SQL Query")
+                                    gr.Markdown("""
+### Generated SQL Query
+
+**👉 Your optimized SQL will appear here**
+
+What you'll see:
+- ✅ **Syntax-validated SQL** optimized for SQLite
+- 📝 **Explanation** of what the query does
+- 🎯 **Performance suggestions** (if applicable)
+- 💡 **Assumptions** made by the AI
+                                    """)
                                     sql_output = gr.Code(
                                         label="SQL Code (click to copy)",
                                         language="sql",
-                                        value="-- Run a query to see the generated SQL here\n-- The query will be optimized for your database",
-                                        lines=15,
+                                        value="",
+                                        lines=12,
                                     )
 
                                 with gr.Tab("💡 Insights"):
