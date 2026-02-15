@@ -830,6 +830,37 @@ class QueryBuddyApp:
                 "**Conversational AI for Smart Data Insights** — Powered by RAG + LangChain + FAISS"
             )
 
+            # Hero Banner - Value Proposition
+            gr.HTML("""
+<div style='background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            padding: 24px 32px;
+            border-radius: 12px;
+            color: white;
+            margin: 16px 0 24px 0;
+            box-shadow: 0 4px 12px rgba(102, 126, 234, 0.3);'>
+    <div style='font-size: 20px; font-weight: 700; margin-bottom: 12px; text-align: center;'>
+        💬 Ask Questions in Plain English, Get SQL-Powered Insights
+    </div>
+    <div style='display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 16px; margin-top: 16px;'>
+        <div style='background: rgba(255,255,255,0.15); padding: 14px; border-radius: 8px; backdrop-filter: blur(10px);'>
+            <div style='font-weight: 600; margin-bottom: 6px;'>🎯 No SQL Knowledge Needed</div>
+            <div style='font-size: 13px; opacity: 0.9;'>Ask questions like "Show me top customers" — we handle the rest</div>
+        </div>
+        <div style='background: rgba(255,255,255,0.15); padding: 14px; border-radius: 8px; backdrop-filter: blur(10px);'>
+            <div style='font-weight: 600; margin-bottom: 6px;'>⚡ AI-Powered Insights</div>
+            <div style='font-size: 13px; opacity: 0.9;'>Get charts, trends, and business recommendations automatically</div>
+        </div>
+        <div style='background: rgba(255,255,255,0.15); padding: 14px; border-radius: 8px; backdrop-filter: blur(10px);'>
+            <div style='font-weight: 600; margin-bottom: 6px;'>🔍 RAG + Query Optimizer</div>
+            <div style='font-size: 13px; opacity: 0.9;'>Semantic schema search + performance optimization built-in</div>
+        </div>
+    </div>
+    <div style='margin-top: 16px; padding: 12px; background: rgba(255,255,255,0.2); border-radius: 8px; text-align: center; font-size: 14px;'>
+        💡 <b>Get Started:</b> Try the example buttons below or type any question about your data
+    </div>
+</div>
+""")
+
             # Status badges
             if self.using_real_llm:
                 status_html = f"""
@@ -870,15 +901,7 @@ class QueryBuddyApp:
             gr.HTML(status_html)
 
             with gr.Tabs():
-                # Tab 0: Dashboard Overview
-                with gr.Tab("📊 Dashboard"):
-                    dashboard_view = gr.Markdown(
-                        value=self._build_dashboard_overview(),
-                        label="Dashboard",
-                    )
-                    refresh_dashboard = gr.Button("🔄 Refresh Stats", variant="secondary")
-
-                # Tab 1: Chat Interface with 2-pane layout
+                # Tab 1: Chat Interface with 2-pane layout (MAIN TAB)
                 with gr.Tab("💬 Chat"):
                     with gr.Row():
                         # LEFT PANE: Chat interface
@@ -983,14 +1006,22 @@ class QueryBuddyApp:
                                         """,
                                     )
 
-                # Tab 2: Schema Explorer
+                # Tab 2: Dashboard Overview
+                with gr.Tab("📊 Dashboard"):
+                    dashboard_view = gr.Markdown(
+                        value=self._build_dashboard_overview(),
+                        label="Dashboard",
+                    )
+                    refresh_dashboard = gr.Button("🔄 Refresh Stats", variant="secondary")
+
+                # Tab 3: Schema Explorer
                 with gr.Tab("📋 Schema & Data"):
                     gr.Markdown("## 🗄️ Database Schema")
                     gr.Markdown(self._build_schema_explorer_text())
                     gr.Markdown("## 📊 Sample Data Preview")
                     gr.Markdown(self._build_sample_data_text())
 
-                # Tab 3: System Status
+                # Tab 4: System Status
                 with gr.Tab("⚙️ System Status"):
                     gr.Markdown("## System Status")
                     gr.Markdown(self._build_status_text())
@@ -1134,8 +1165,9 @@ class QueryBuddyApp:
                 ex8: "List customers who haven't ordered anything in the last 3 months",
             }
 
-            # Outputs: textbox first, then all query outputs (which includes dashboard)
-            example_outputs = [msg] + query_outputs
+            # Outputs: textbox first, then all query outputs EXCEPT msg (which is already first)
+            # query_outputs[0] is msg, so skip it to avoid duplicate
+            example_outputs = [msg] + query_outputs[1:]
 
             for btn, query in example_queries.items():
                 # First: Immediately disable ALL buttons when ANY example is clicked
