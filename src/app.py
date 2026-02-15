@@ -979,6 +979,7 @@ class QueryBuddyApp:
                                 label="Conversation",
                                 height=500,
                                 show_label=True,
+                                autoscroll=True,  # Auto-scroll to latest message
                             )
 
                         # RIGHT PANE: Tabbed results
