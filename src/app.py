@@ -47,30 +47,37 @@ class QueryBuddyApp:
         # Initialize NLP and context management
         self.context_manager = ContextManager()
 
-        # Track LLM mode for status display
+        # Determine LLM mode from APP_MODE setting
         _placeholder_keys = {"your-api-key-here", "sk-xxx", "your_api_key", ""}
-        self.using_real_llm = bool(
+        _has_valid_key = bool(
             settings.openai_api_key
             and settings.openai_api_key.strip().lower() not in _placeholder_keys
             and settings.openai_api_key.startswith("sk-")
         )
 
-        # Track fallback reason for UI display
-        self._fallback_reason = "" if self.using_real_llm else "no API key"
+        if settings.app_mode == "local":
+            self.using_real_llm = False
+            self._fallback_reason = "local mode (APP_MODE=local)"
+        elif settings.app_mode == "openai":
+            self.using_real_llm = _has_valid_key
+            self._fallback_reason = "" if _has_valid_key else "no valid API key (APP_MODE=openai)"
+        else:  # auto
+            self.using_real_llm = _has_valid_key
+            self._fallback_reason = "" if _has_valid_key else "no API key"
 
-        # Structured startup logging (task 1)
-        _mode = "openai" if self.using_real_llm else "mock"
+        # Structured startup logging
         _key_present = bool(
             settings.openai_api_key
             and settings.openai_api_key.strip().lower() not in _placeholder_keys
         )
         logger.info(
-            "Startup config: mode=%s model=%s insights=%s timeout=%s key_present=%s",
-            _mode,
+            "Startup config: app_mode=%s model=%s llm_enabled=%s timeout=%s key_present=%s debug_panel=%s",
+            settings.app_mode,
             settings.openai_model,
             self.using_real_llm,
             settings.query_timeout_seconds,
             _key_present,
+            settings.show_debug_panel,
         )
 
         # Initialize SQL generator (with mock fallback for API errors)
@@ -481,9 +488,21 @@ class QueryBuddyApp:
                     _error_category, _error_category or "API error"
                 )
                 logger.warning(
-                    "SQL generation fallback to mock: reason=%s",
+                    "SQL generation failed: reason=%s app_mode=%s",
                     self._fallback_reason,
+                    settings.app_mode,
                 )
+                # APP_MODE=openai: show error, no silent fallback
+                if settings.app_mode == "openai":
+                    error_msg = (
+                        f"**OpenAI Error: {self._fallback_reason}**\n\n"
+                        "APP_MODE is set to `openai` — silent fallback is disabled.\n\n"
+                        "Check your API key, billing, and model name in HuggingFace Settings."
+                    )
+                    chat_history.append({"role": "user", "content": user_message})
+                    chat_history.append({"role": "assistant", "content": error_msg})
+                    return "", chat_history, None, "", self._format_history(), "", "", ""
+                # APP_MODE=auto: fallback to mock generator
                 result = self.mock_generator.generate(
                     user_query=user_message,
                     schema_context=schema_str,
@@ -852,7 +871,7 @@ class QueryBuddyApp:
             reason = self._fallback_reason or "no API key"
             llm_status = f"Mock (Fallback: {reason})"
         vector_db = "FAISS" if FAISS_AVAILABLE else "In-Memory"
-        return (
+        status = (
             f"| Component | Status |\n"
             f"|-----------|--------|\n"
             f"| Database | Connected ({settings.database_type}) |\n"
@@ -860,6 +879,22 @@ class QueryBuddyApp:
             f"| Vector DB | {vector_db} |\n"
             f"| RAG System | Active |\n"
         )
+        if settings.show_debug_panel:
+            _masked_key = "set" if settings.openai_api_key and settings.openai_api_key.startswith("sk-") else "not set"
+            status += (
+                f"\n### Debug Panel\n"
+                f"| Setting | Value |\n"
+                f"|---------|-------|\n"
+                f"| APP_MODE | `{settings.app_mode}` |\n"
+                f"| OPENAI_MODEL | `{settings.openai_model}` |\n"
+                f"| LOG_LEVEL | `{settings.log_level}` |\n"
+                f"| API Key | `{_masked_key}` |\n"
+                f"| Timeout | `{settings.query_timeout_seconds}s` |\n"
+                f"| Similarity Threshold | `{settings.similarity_threshold}` |\n"
+                f"| Max Rows | `{settings.max_rows_return}` |\n"
+                f"| Fallback Reason | `{self._fallback_reason or 'none'}` |\n"
+            )
+        return status
 
     def _build_dashboard_overview(self) -> str:
         """Build dashboard overview with stats and recent queries"""

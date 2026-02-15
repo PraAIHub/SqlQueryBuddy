@@ -31,8 +31,12 @@ class Settings(BaseSettings):
     )
 
     # Application Configuration
+    app_mode: Literal["auto", "openai", "local"] = Field(
+        default="auto", alias="APP_MODE"
+    )  # auto: use OpenAI if key exists else local; openai: require OpenAI, error on fail; local: always local
     debug: bool = Field(default=False, alias="DEBUG")
     log_level: str = Field(default="INFO", alias="LOG_LEVEL")
+    show_debug_panel: bool = Field(default=False, alias="SHOW_DEBUG_PANEL")
     max_rows_return: int = Field(default=1000, alias="MAX_ROWS_RETURN")
     query_timeout_seconds: int = Field(default=30, alias="QUERY_TIMEOUT_SECONDS")
 
