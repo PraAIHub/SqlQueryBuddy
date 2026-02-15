@@ -1,7 +1,9 @@
 """SQL generation engine powered by LangChain and LLMs"""
 from typing import Optional, Dict, List
+import logging
 import re
 import time
+import uuid
 
 try:
     from langchain_core.prompts import PromptTemplate, ChatPromptTemplate
@@ -26,6 +28,9 @@ except ImportError:
 
 
 from src.components.sanitizer import sanitize_prompt_input as _sanitize_prompt_input
+from src.components.error_classifier import classify_llm_error
+
+logger = logging.getLogger(__name__)
 
 
 class SQLPromptBuilder:
@@ -188,6 +193,7 @@ class SQLGenerator:
 
     def _invoke_llm(self, messages) -> str:
         """Invoke LLM with retry logic for transient API failures."""
+        req_id = uuid.uuid4().hex[:8]
         last_error = None
         for attempt in range(1 + self.MAX_RETRIES):
             try:
@@ -195,6 +201,15 @@ class SQLGenerator:
                 return response.content.strip()
             except Exception as e:
                 last_error = e
+                category, _ = classify_llm_error(e)
+                logger.warning(
+                    "LLM call attempt %d/%d failed: req_id=%s category=%s error=%s",
+                    attempt + 1,
+                    1 + self.MAX_RETRIES,
+                    req_id,
+                    category,
+                    str(e)[:200],
+                )
                 if attempt < self.MAX_RETRIES:
                     time.sleep(self.RETRY_DELAY * (attempt + 1))
         raise last_error
@@ -258,9 +273,21 @@ class SQLGenerator:
             }
 
         except Exception as e:
+            req_id = uuid.uuid4().hex[:8]
+            category, user_message = classify_llm_error(e)
+
+            logger.warning(
+                "SQL generation failed: req_id=%s category=%s error_class=%s message=%s",
+                req_id,
+                category,
+                type(e).__name__,
+                str(e)[:200],
+            )
+
             return {
                 "success": False,
-                "error": f"SQL generation failed: {str(e)}",
+                "error": f"SQL generation failed: {user_message} (ref: {req_id})",
+                "error_category": category,
             }
 
     def _generate_explanation(self, schema_context: str, generated_sql: str) -> str:

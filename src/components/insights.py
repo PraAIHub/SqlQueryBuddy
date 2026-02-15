@@ -1,4 +1,6 @@
 """Insight generation and analysis of query results"""
+import logging
+import uuid
 from typing import Dict, List, Any, Optional
 
 try:
@@ -20,6 +22,9 @@ except ImportError:
 
 
 from src.components.sanitizer import sanitize_prompt_input as _sanitize_prompt_input
+from src.components.error_classifier import classify_llm_error
+
+logger = logging.getLogger(__name__)
 
 
 class InsightGenerator:
@@ -86,27 +91,20 @@ Provide 2-3 key insights or patterns from this data. Be specific and actionable.
             response = self.llm.invoke(messages)
             return response.content.strip()
         except Exception as e:
-            import logging
-            logger = logging.getLogger(__name__)
-            error_type = type(e).__name__
-            error_msg = str(e)
+            req_id = uuid.uuid4().hex[:8]
+            category, user_message_text = classify_llm_error(e)
 
-            # Enhanced logging with specific error types
             logger.warning(
-                f"LLM insights generation failed: {error_type}: {error_msg}"
+                "LLM insights failed: req_id=%s category=%s error_class=%s message=%s",
+                req_id,
+                category,
+                type(e).__name__,
+                str(e)[:200],
             )
 
-            # Provide specific guidance based on error type
-            if "rate" in error_msg.lower() or "429" in error_msg:
-                logger.warning("OpenAI rate limit exceeded - will use local fallback")
-            elif "quota" in error_msg.lower() or "billing" in error_msg.lower():
-                logger.error("OpenAI quota/billing issue detected - check your account")
-            elif "authentication" in error_msg.lower() or "401" in error_msg:
-                logger.error("OpenAI authentication failed - check API key")
-
             return (
-                "**AI Insights unavailable** - The LLM service encountered an error. "
-                "This could be due to rate limiting or network issues. "
+                f"**AI Insights unavailable** - {user_message_text} "
+                f"(ref: {req_id}). "
                 "The query results above are still valid."
             )
 
