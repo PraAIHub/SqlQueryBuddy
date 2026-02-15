@@ -212,6 +212,19 @@ class QueryBuddyApp:
         if len(headers) < 2:
             return None
 
+        # Column names that indicate IDs / non-chartable data
+        _id_hints = {"id", "uuid", "pk", "key", "email", "phone", "address", "password", "hash"}
+
+        def _is_id_column(name: str) -> bool:
+            nl = name.lower()
+            return nl.endswith("_id") or nl in _id_hints or nl.startswith("id_")
+
+        # Column names that indicate a meaningful metric (revenue, count, etc.)
+        _metric_hints = {
+            "revenue", "sales", "amount", "total", "count", "sum", "avg",
+            "quantity", "profit", "price", "spent", "orders", "customers",
+        }
+
         date_col = None
         numeric_col = None
         categorical_col = None
@@ -224,23 +237,36 @@ class QueryBuddyApp:
             ]):
                 date_col = h
             elif isinstance(sample_val, (int, float)):
-                if numeric_col is None:
+                # Prefer metric columns; skip IDs
+                if not _is_id_column(h) and numeric_col is None:
                     numeric_col = h
             elif isinstance(sample_val, str):
                 try:
                     float(sample_val)
-                    if numeric_col is None:
+                    if not _is_id_column(h) and numeric_col is None:
                         numeric_col = h
                 except (ValueError, TypeError):
-                    if categorical_col is None:
+                    if not _is_id_column(h) and categorical_col is None:
                         categorical_col = h
 
+        # Fallback: use first non-numeric, non-ID column as categorical
         if not date_col and not categorical_col and len(headers) >= 2:
-            if headers[0] != numeric_col:
-                categorical_col = headers[0]
+            for h in headers:
+                if h != numeric_col and not _is_id_column(h):
+                    categorical_col = h
+                    break
 
         if numeric_col is None:
             return None
+
+        # Gate: for bar charts, only chart if the metric looks meaningful
+        # (skip raw row listings like "customer_id over signup_date")
+        if not date_col and categorical_col:
+            n_lower = numeric_col.lower()
+            # If more than 15 unique categories, it's probably raw rows, not aggregates
+            unique_cats = len(set(str(row.get(categorical_col, "")) for row in data))
+            if unique_cats > 15 and not any(m in n_lower for m in _metric_hints):
+                return None
 
         # Modern chart style
         fig, ax = plt.subplots(figsize=(8, 4))
@@ -403,15 +429,20 @@ class QueryBuddyApp:
         return fig
 
     def _format_history(self) -> str:
-        """Format query history as markdown."""
+        """Format query history as markdown with timestamp, status, rows, latency."""
         if not self._query_history:
             return "*No queries yet.*"
         lines = []
         for i, entry in enumerate(reversed(self._query_history), 1):
+            ts = entry.get("timestamp", "")
+            status = entry.get("status", "success")
+            latency = entry.get("latency_ms", 0)
+            rows = entry.get("rows", 0)
+            status_icon = {"success": "✅", "fallback": "⚠️", "error": "❌"}.get(status, "●")
             lines.append(
-                f"**{i}.** {entry['query']}\n"
-                f"   `{entry['sql'][:80]}{'...' if len(entry['sql']) > 80 else ''}`"
-                f" — {entry['rows']} rows"
+                f"**{i}.** {status_icon} {entry['query']}\n"
+                f"   `{entry['sql'][:80]}{'...' if len(entry['sql']) > 80 else ''}`\n"
+                f"   {rows} rows · {latency}ms · {ts}"
             )
         return "\n\n".join(lines)
 
@@ -615,6 +646,12 @@ class QueryBuddyApp:
                     )
                     chat_history.append({"role": "user", "content": user_message})
                     chat_history.append({"role": "assistant", "content": response})
+                    logger.info(
+                        "RUN_SUMMARY mode=%s provider=%s status=exec_error exec_ms=%d",
+                        settings.app_mode,
+                        "openai" if self.using_real_llm else "local",
+                        round(exec_ms),
+                    )
                     return "", chat_history, None, "", self._format_history(), rag_context, generated_sql, ""
 
             # Track successful query
@@ -624,10 +661,14 @@ class QueryBuddyApp:
             data = exec_result.get("data", [])
             self._last_results = data
             self._last_sql = generated_sql
+            _run_status = "fallback" if self._auto_fallback_active else "success"
             self._query_history.append({
                 "query": user_message,
                 "sql": generated_sql,
                 "rows": exec_result.get("row_count", 0),
+                "status": _run_status,
+                "latency_ms": round(exec_ms),
+                "timestamp": time.strftime("%H:%M:%S"),
             })
             # Cap history to last 50 entries
             if len(self._query_history) > 50:
@@ -783,6 +824,21 @@ class QueryBuddyApp:
 
             chat_history.append({"role": "user", "content": user_message})
             chat_history.append({"role": "assistant", "content": response_text})
+
+            # Structured run summary (single log line for Space logs readability)
+            _provider = "mock" if self._auto_fallback_active else ("openai" if self.using_real_llm else "local")
+            logger.info(
+                "RUN_SUMMARY mode=%s provider=%s model=%s fallback_used=%s "
+                "status=success rows=%d exec_ms=%d chart=%s",
+                settings.app_mode,
+                _provider,
+                settings.openai_model,
+                self._auto_fallback_active,
+                exec_result.get("row_count", 0),
+                round(exec_ms),
+                "yes" if chart else "no",
+            )
+
             return "", chat_history, chart, insights_md, self._format_history(), rag_display, generated_sql, filter_md
 
         except Exception as e:

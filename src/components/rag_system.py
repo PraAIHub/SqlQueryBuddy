@@ -450,8 +450,9 @@ class RAGSystem:
                     lines.append(f"  - `{col_name}`{type_str} — confidence: {conf} ({similarity:.0%})")
             lines.append("")
 
-        # Add summary
+        # Add summary — count tables that appear as table items OR as column parents
+        all_tables = tables_found | set(columns_by_table.keys()) - {"inferred"}
         total_cols = sum(len(cols) for cols in columns_by_table.values())
-        lines.append(f"\n📌 **Retrieved:** {len(tables_found)} tables, {total_cols} columns")
+        lines.append(f"\n📌 **Retrieved:** {len(all_tables)} tables, {total_cols} columns")
 
         return "\n".join(lines)
