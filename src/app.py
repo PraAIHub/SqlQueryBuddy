@@ -1235,8 +1235,8 @@ What you'll see:
 
                 # Return results + re-enable all buttons + dashboard + scroll trigger
                 # Results: msg(""), chatbot, chart, insights, history, rag, sql, filter_section (8 items)
-                # But we want query_text for msg, so skip results[0]
-                return [query_text] + list(results[1:]) + [
+                # But we want query_text for msg AND re-enable it, so skip results[0]
+                return [gr.update(value=query_text, interactive=True)] + list(results[1:]) + [
                     gr.update(interactive=True),   # submit_btn
                     gr.update(interactive=True),   # ex1
                     gr.update(interactive=True),   # ex2
