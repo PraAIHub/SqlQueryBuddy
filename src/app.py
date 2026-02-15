@@ -822,6 +822,45 @@ class QueryBuddyApp:
                     border-color: #9ca3af !important;
                 }
             </style>
+            <script>
+                // Force chatbot to scroll to bottom on new messages
+                function scrollChatbotToBottom() {
+                    // Find all chatbot scroll containers
+                    const chatbots = document.querySelectorAll('.chatbot .overflow-y-auto');
+                    chatbots.forEach(chatbot => {
+                        if (chatbot) {
+                            chatbot.scrollTop = chatbot.scrollHeight;
+                        }
+                    });
+                }
+
+                // Use MutationObserver to detect when chatbot content changes
+                function setupChatbotAutoScroll() {
+                    const chatbotContainer = document.querySelector('.chatbot');
+                    if (chatbotContainer) {
+                        const observer = new MutationObserver((mutations) => {
+                            // Scroll to bottom whenever chatbot content changes
+                            scrollChatbotToBottom();
+                        });
+
+                        observer.observe(chatbotContainer, {
+                            childList: true,
+                            subtree: true,
+                            characterData: true
+                        });
+                    }
+                }
+
+                // Initialize when page loads
+                if (document.readyState === 'loading') {
+                    document.addEventListener('DOMContentLoaded', setupChatbotAutoScroll);
+                } else {
+                    setupChatbotAutoScroll();
+                }
+
+                // Also try to set up after a short delay to ensure Gradio is ready
+                setTimeout(setupChatbotAutoScroll, 1000);
+            </script>
             """)
 
             gr.Markdown(
