@@ -698,43 +698,41 @@ class QueryBuddyApp:
             '<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; margin: 20px 0;">',
         ]
 
-        # Card 1: Total Queries
+        # Card 1: Total Queries - Purple gradient
         lines.append(f'''
-<div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            padding: 20px; border-radius: 12px; color: white; box-shadow: 0 4px 12px rgba(0,0,0,0.15);">
+<div style="background: linear-gradient(135deg, #7c3aed 0%, #a855f7 100%);
+            padding: 20px; border-radius: 12px; color: white; box-shadow: 0 4px 12px rgba(124,58,237,0.15);">
     <div style="font-size: 14px; opacity: 0.9; margin-bottom: 8px;">🔍 Total Queries</div>
     <div style="font-size: 36px; font-weight: bold;">{total}</div>
     <div style="font-size: 12px; opacity: 0.8; margin-top: 4px;">This session</div>
 </div>
 ''')
 
-        # Card 2: Success Rate
-        success_color = "#10b981" if success_rate >= 90 else "#f59e0b" if success_rate >= 70 else "#ef4444"
+        # Card 2: Success Rate - Blue gradient (consistent with hero)
         lines.append(f'''
-<div style="background: linear-gradient(135deg, {success_color} 0%, {success_color}dd 100%);
-            padding: 20px; border-radius: 12px; color: white; box-shadow: 0 4px 12px rgba(0,0,0,0.15);">
+<div style="background: linear-gradient(135deg, #6366f1 0%, #4f46e5 100%);
+            padding: 20px; border-radius: 12px; color: white; box-shadow: 0 4px 12px rgba(99,102,241,0.15);">
     <div style="font-size: 14px; opacity: 0.9; margin-bottom: 8px;">✅ Success Rate</div>
     <div style="font-size: 36px; font-weight: bold;">{success_rate:.0f}%</div>
     <div style="font-size: 12px; opacity: 0.8; margin-top: 4px;">{success} of {total} queries</div>
 </div>
 ''')
 
-        # Card 3: Avg Response Time
-        time_color = "#10b981" if avg_time < 200 else "#f59e0b" if avg_time < 500 else "#ef4444"
+        # Card 3: Avg Response Time - Purple-blue gradient
         lines.append(f'''
-<div style="background: linear-gradient(135deg, {time_color} 0%, {time_color}dd 100%);
-            padding: 20px; border-radius: 12px; color: white; box-shadow: 0 4px 12px rgba(0,0,0,0.15);">
+<div style="background: linear-gradient(135deg, #8b5cf6 0%, #6366f1 100%);
+            padding: 20px; border-radius: 12px; color: white; box-shadow: 0 4px 12px rgba(139,92,246,0.15);">
     <div style="font-size: 14px; opacity: 0.9; margin-bottom: 8px;">⚡ Avg Response</div>
     <div style="font-size: 36px; font-weight: bold;">{avg_time:.0f}ms</div>
     <div style="font-size: 12px; opacity: 0.8; margin-top: 4px;">Query execution time</div>
 </div>
 ''')
 
-        # Card 4: Charts Generated
+        # Card 4: Results with Data - Blue gradient
         chart_count = sum(1 for entry in self._query_history if entry.get("rows", 0) > 0)
         lines.append(f'''
-<div style="background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%);
-            padding: 20px; border-radius: 12px; color: white; box-shadow: 0 4px 12px rgba(0,0,0,0.15);">
+<div style="background: linear-gradient(135deg, #4f46e5 0%, #3b82f6 100%);
+            padding: 20px; border-radius: 12px; color: white; box-shadow: 0 4px 12px rgba(79,70,229,0.15);">
     <div style="font-size: 14px; opacity: 0.9; margin-bottom: 8px;">📈 Results with Data</div>
     <div style="font-size: 36px; font-weight: bold;">{chart_count}</div>
     <div style="font-size: 12px; opacity: 0.8; margin-top: 4px;">Queries with results</div>
@@ -806,32 +804,22 @@ class QueryBuddyApp:
             # Custom CSS for modern styling
             gr.HTML("""
             <style>
-                .status-badge {
-                    display: inline-flex;
-                    align-items: center;
-                    gap: 8px;
-                    padding: 10px 20px;
-                    border-radius: 12px;
-                    font-weight: 600;
-                    font-size: 14px;
-                    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
-                    margin: 8px 4px;
+                /* Chart container max-height with scroll */
+                .chart-container {
+                    max-height: 500px;
+                    overflow-y: auto;
+                    overflow-x: hidden;
                 }
-                .status-live {
-                    background: linear-gradient(135deg, #10b981 0%, #059669 100%);
-                    color: white;
-                    border: 2px solid rgba(255, 255, 255, 0.3);
+
+                /* Secondary button styling - lighter */
+                button.secondary {
+                    background: transparent !important;
+                    border: 1px solid #d1d5db !important;
+                    color: #6b7280 !important;
                 }
-                .status-demo {
-                    background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
-                    color: white;
-                    border: 2px solid rgba(255, 255, 255, 0.3);
-                }
-                .chip-container {
-                    display: flex;
-                    flex-wrap: wrap;
-                    gap: 8px;
-                    margin: 12px 0;
+                button.secondary:hover {
+                    background: #f9fafb !important;
+                    border-color: #9ca3af !important;
                 }
             </style>
             """)
@@ -844,9 +832,9 @@ class QueryBuddyApp:
             # Hero Banner - Value Proposition (Brightened & High Contrast)
             gr.HTML("""
 <div style='background: linear-gradient(135deg, #7c3aed 0%, #a855f7 50%, #6366f1 100%);
-            padding: 20px 28px;
+            padding: 15px 24px;
             border-radius: 12px;
-            margin: 16px 0 20px 0;
+            margin: 12px 0 16px 0;
             box-shadow: 0 8px 24px rgba(124, 58, 237, 0.25);
             position: relative;'>
     <!-- Brightness overlay -->
@@ -856,16 +844,16 @@ class QueryBuddyApp:
 
     <!-- Content -->
     <div style='position: relative; z-index: 1;'>
-        <div style='font-size: 20px; font-weight: 700; margin-bottom: 14px; text-align: center;
+        <div style='font-size: 18px; font-weight: 700; margin-bottom: 10px; text-align: center;
                     color: #ffffff; text-shadow: 0 2px 4px rgba(0,0,0,0.15);'>
             💬 Ask Questions in Plain English, Get SQL-Powered Insights
         </div>
 
-        <div style='display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px; margin-top: 14px;'>
-            <div style='background: rgba(255,255,255,0.95); padding: 14px; border-radius: 10px;
+        <div style='display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 10px; margin-top: 10px;'>
+            <div style='background: rgba(255,255,255,0.95); padding: 12px; border-radius: 10px;
                         border: 1px solid rgba(255,255,255,0.3);
                         box-shadow: 0 4px 12px rgba(0,0,0,0.1);'>
-                <div style='font-weight: 700; margin-bottom: 6px; color: #7c3aed; font-size: 14px;'>
+                <div style='font-weight: 700; margin-bottom: 5px; color: #7c3aed; font-size: 13px;'>
                     🎯 No SQL Knowledge Needed
                 </div>
                 <div style='font-size: 13px; color: #4b5563; line-height: 1.4;'>
@@ -873,10 +861,10 @@ class QueryBuddyApp:
                 </div>
             </div>
 
-            <div style='background: rgba(255,255,255,0.95); padding: 14px; border-radius: 10px;
+            <div style='background: rgba(255,255,255,0.95); padding: 12px; border-radius: 10px;
                         border: 1px solid rgba(255,255,255,0.3);
                         box-shadow: 0 4px 12px rgba(0,0,0,0.1);'>
-                <div style='font-weight: 700; margin-bottom: 6px; color: #7c3aed; font-size: 14px;'>
+                <div style='font-weight: 700; margin-bottom: 5px; color: #7c3aed; font-size: 13px;'>
                     ⚡ AI-Powered Insights
                 </div>
                 <div style='font-size: 13px; color: #4b5563; line-height: 1.4;'>
@@ -884,10 +872,10 @@ class QueryBuddyApp:
                 </div>
             </div>
 
-            <div style='background: rgba(255,255,255,0.95); padding: 14px; border-radius: 10px;
+            <div style='background: rgba(255,255,255,0.95); padding: 12px; border-radius: 10px;
                         border: 1px solid rgba(255,255,255,0.3);
                         box-shadow: 0 4px 12px rgba(0,0,0,0.1);'>
-                <div style='font-weight: 700; margin-bottom: 6px; color: #7c3aed; font-size: 14px;'>
+                <div style='font-weight: 700; margin-bottom: 5px; color: #7c3aed; font-size: 13px;'>
                     🔍 RAG + Query Optimizer
                 </div>
                 <div style='font-size: 13px; color: #4b5563; line-height: 1.4;'>
@@ -896,10 +884,10 @@ class QueryBuddyApp:
             </div>
         </div>
 
-        <div style='margin-top: 14px; padding: 10px 16px;
+        <div style='margin-top: 10px; padding: 8px 14px;
                     background: rgba(255,255,255,0.25);
                     border: 1px solid rgba(255,255,255,0.4);
-                    border-radius: 8px; text-align: center; font-size: 13px;
+                    border-radius: 8px; text-align: center; font-size: 12px;
                     color: #ffffff; font-weight: 500;'>
             💡 <b>Get Started:</b> Try the example buttons below or type any question about your data
         </div>
@@ -907,31 +895,31 @@ class QueryBuddyApp:
 </div>
 """)
 
-            # Compact status indicator (replaces large badges - info now in hero)
+            # Compact status indicator - small, non-interactive chips
             if self.using_real_llm:
                 status_html = f"""
-                <div style='text-align: center; font-size: 12px; color: #6b7280; margin: 8px 0 16px 0;'>
-                    <span style='background: #10b98120; padding: 4px 10px; border-radius: 12px; margin: 0 4px; font-weight: 500;'>
-                        ✅ Live: {settings.openai_model}
+                <div style='text-align: center; font-size: 10px; color: #9ca3af; margin: 6px 0 12px 0; letter-spacing: 0.3px;'>
+                    <span style='background: #f3f4f6; padding: 3px 8px; border-radius: 4px; margin: 0 3px; border: 1px solid #e5e7eb;'>
+                        ✅ {settings.openai_model}
                     </span>
-                    <span style='background: #f3f4f620; padding: 4px 10px; border-radius: 12px; margin: 0 4px;'>
+                    <span style='background: #f3f4f6; padding: 3px 8px; border-radius: 4px; margin: 0 3px; border: 1px solid #e5e7eb;'>
                         🗄️ {settings.database_type.upper()}
                     </span>
-                    <span style='background: #f3f4f620; padding: 4px 10px; border-radius: 12px; margin: 0 4px;'>
+                    <span style='background: #f3f4f6; padding: 3px 8px; border-radius: 4px; margin: 0 3px; border: 1px solid #e5e7eb;'>
                         ⚡ FAISS
                     </span>
                 </div>
                 """
             else:
                 status_html = f"""
-                <div style='text-align: center; font-size: 12px; color: #6b7280; margin: 8px 0 16px 0;'>
-                    <span style='background: #f59e0b20; padding: 4px 10px; border-radius: 12px; margin: 0 4px; font-weight: 500;'>
-                        🎮 Demo Mode
+                <div style='text-align: center; font-size: 10px; color: #9ca3af; margin: 6px 0 12px 0; letter-spacing: 0.3px;'>
+                    <span style='background: #fef3c7; padding: 3px 8px; border-radius: 4px; margin: 0 3px; border: 1px solid #fde68a;'>
+                        🎮 Demo
                     </span>
-                    <span style='background: #f3f4f620; padding: 4px 10px; border-radius: 12px; margin: 0 4px;'>
+                    <span style='background: #f3f4f6; padding: 3px 8px; border-radius: 4px; margin: 0 3px; border: 1px solid #e5e7eb;'>
                         🗄️ {settings.database_type.upper()}
                     </span>
-                    <span style='opacity: 0.7; font-style: italic; margin-left: 8px;'>
+                    <span style='opacity: 0.6; font-style: italic; margin-left: 6px; font-size: 9px;'>
                         (Set OPENAI_API_KEY for full LLM)
                     </span>
                 </div>
@@ -1006,6 +994,8 @@ Charts appear automatically when your query returns:
                                     chart_output = gr.Plot(
                                         label="Visualization",
                                         show_label=False,
+                                        container=True,
+                                        elem_classes="chart-container",
                                     )
 
                                 with gr.Tab("🔍 SQL"):
