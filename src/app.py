@@ -573,140 +573,191 @@ class QueryBuddyApp:
     def create_interface(self) -> gr.Blocks:
         """Create Gradio interface"""
         with gr.Blocks(title="SQL Query Buddy", theme=gr.themes.Soft()) as demo:
+            # Custom CSS for modern styling
+            gr.HTML("""
+            <style>
+                .status-badge {
+                    display: inline-flex;
+                    align-items: center;
+                    gap: 8px;
+                    padding: 10px 20px;
+                    border-radius: 12px;
+                    font-weight: 600;
+                    font-size: 14px;
+                    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+                    margin: 8px 4px;
+                }
+                .status-live {
+                    background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+                    color: white;
+                    border: 2px solid rgba(255, 255, 255, 0.3);
+                }
+                .status-demo {
+                    background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
+                    color: white;
+                    border: 2px solid rgba(255, 255, 255, 0.3);
+                }
+                .chip-container {
+                    display: flex;
+                    flex-wrap: wrap;
+                    gap: 8px;
+                    margin: 12px 0;
+                }
+            </style>
+            """)
+
             gr.Markdown(
-                "# SQL Query Buddy\n"
-                "**Conversational AI for Smart Data Insights** | "
-                "RAG + LangChain + FAISS\n\n"
-                "Ask questions about your database in plain English. "
-                "Get optimized SQL, instant results, visualizations, and AI-driven business insights."
+                "# 🤖 SQL Query Buddy\n"
+                "**Conversational AI for Smart Data Insights** — Powered by RAG + LangChain + FAISS"
             )
 
+            # Status badges
+            if self.using_real_llm:
+                status_html = f"""
+                <div style='display: flex; justify-content: center; flex-wrap: wrap; margin: 16px 0;'>
+                    <div class='status-badge status-live'>
+                        <span>🚀</span>
+                        <span>Live LLM Mode</span>
+                        <span style='opacity: 0.8; font-size: 12px;'>({settings.openai_model})</span>
+                    </div>
+                    <div class='status-badge status-live'>
+                        <span>🗄️</span>
+                        <span>Database: {settings.database_type.upper()}</span>
+                    </div>
+                    <div class='status-badge status-live'>
+                        <span>⚡</span>
+                        <span>RAG: FAISS</span>
+                    </div>
+                </div>
+                """
+            else:
+                status_html = f"""
+                <div style='display: flex; justify-content: center; flex-wrap: wrap; margin: 16px 0;'>
+                    <div class='status-badge status-demo'>
+                        <span>🎮</span>
+                        <span>Demo Mode</span>
+                        <span style='opacity: 0.8; font-size: 12px;'>(Mock SQL Generator)</span>
+                    </div>
+                    <div class='status-badge status-demo'>
+                        <span>🗄️</span>
+                        <span>Database: {settings.database_type.upper()}</span>
+                    </div>
+                    <div class='status-badge status-demo'>
+                        <span>💡</span>
+                        <span>Set OPENAI_API_KEY for full LLM</span>
+                    </div>
+                </div>
+                """
+            gr.HTML(status_html)
+
             with gr.Tabs():
-                # Tab 1: Chat Interface
-                with gr.Tab("Chat"):
-                    # Mode banner: visual color-coded badge showing LLM mode + DB type
-                    if self.using_real_llm:
-                        mode_html = f"""
-                        <div style='background: linear-gradient(90deg, #10b981 0%, #059669 100%);
-                                    color: white;
-                                    padding: 12px 20px;
-                                    border-radius: 8px;
-                                    text-align: center;
-                                    font-weight: bold;
-                                    margin-bottom: 16px;
-                                    box-shadow: 0 2px 4px rgba(16, 185, 129, 0.2);'>
-                            ✅ Live LLM ({settings.openai_model}) | 🗄️ DB: {settings.database_type}
-                        </div>
-                        """
-                    else:
-                        mode_html = f"""
-                        <div style='background: linear-gradient(90deg, #f59e0b 0%, #d97706 100%);
-                                    color: white;
-                                    padding: 12px 20px;
-                                    border-radius: 8px;
-                                    text-align: center;
-                                    font-weight: bold;
-                                    margin-bottom: 16px;
-                                    box-shadow: 0 2px 4px rgba(245, 158, 11, 0.2);'>
-                            ⚠️ Demo Mode (Mock SQL Generator) | 🗄️ DB: {settings.database_type}
-                        </div>
-                        """
-                    gr.HTML(mode_html)
-
-                    # PRIMARY ACTION FIRST: Question input at the top
+                # Tab 1: Chat Interface with 2-pane layout
+                with gr.Tab("💬 Chat"):
                     with gr.Row():
-                        msg = gr.Textbox(
-                            label="Your question",
-                            placeholder="Type your question and press Enter or click Send...",
-                            lines=1,
-                            scale=4,
-                        )
-                        submit_btn = gr.Button(
-                            "Send", variant="primary", scale=1, interactive=False  # Disabled when empty
-                        )
-                        export_btn = gr.Button("Export CSV", scale=1)
-                        clear = gr.Button("Clear Chat", scale=1)
-                    export_file = gr.File(
-                        label="Download Results", visible=False
-                    )
+                        # LEFT PANE: Chat interface
+                        with gr.Column(scale=5):
+                            # Input controls
+                            with gr.Row():
+                                msg = gr.Textbox(
+                                    label="Ask a question about your data",
+                                    placeholder="e.g., Show me the top 5 customers by spending...",
+                                    lines=2,
+                                    scale=5,
+                                )
+                            with gr.Row():
+                                submit_btn = gr.Button(
+                                    "🚀 Send", variant="primary", scale=2, interactive=False
+                                )
+                                export_btn = gr.Button("📥 Export CSV", scale=1)
+                                clear = gr.Button("🗑️ Clear", scale=1)
 
-                    # EXAMPLE QUERIES: Immediate guidance on what to ask
-                    gr.Markdown("**💡 Try these example queries:**")
-                    with gr.Row():
-                        ex1 = gr.Button(
-                            "Top 5 customers by spending", size="sm"
-                        )
-                        ex2 = gr.Button(
-                            "Revenue by product category", size="sm"
-                        )
-                        ex3 = gr.Button(
-                            "Total sales per region", size="sm"
-                        )
-                        ex4 = gr.Button(
-                            "Monthly revenue trend", size="sm"
-                        )
-                    with gr.Row():
-                        ex5 = gr.Button(
-                            "Avg order value for returning customers",
-                            size="sm",
-                        )
-                        ex6 = gr.Button(
-                            "Unique products sold in January", size="sm"
-                        )
-                        ex7 = gr.Button(
-                            "Orders with more than 3 items", size="sm"
-                        )
-                        ex8 = gr.Button(
-                            "Customers inactive 3+ months", size="sm"
-                        )
+                            export_file = gr.File(label="Download Results", visible=False)
 
-                    # CONVERSATION: Shows query/response history
-                    chatbot = gr.Chatbot(
-                        label="Conversation",
-                        height=350,
-                        show_label=False,
-                    )
+                            # Example query chips
+                            gr.Markdown("**💡 Quick Start:**")
+                            with gr.Row():
+                                ex1 = gr.Button("Top customers", size="sm")
+                                ex2 = gr.Button("Revenue by category", size="sm")
+                                ex3 = gr.Button("Sales per region", size="sm")
+                                ex4 = gr.Button("Monthly trend", size="sm")
+                            with gr.Row():
+                                ex5 = gr.Button("Returning customers", size="sm")
+                                ex6 = gr.Button("January products", size="sm")
+                                ex7 = gr.Button("Large orders", size="sm")
+                                ex8 = gr.Button("Inactive customers", size="sm")
 
-                    # RESULTS: Visualization and AI Insights
-                    with gr.Row():
-                        with gr.Column(scale=3):
-                            gr.Markdown("### Visualization")
-                            chart_output = gr.Plot(
-                                label="Chart", show_label=False,
-                            )
-                        with gr.Column(scale=2):
-                            gr.Markdown("### AI Insights")
-                            insights_output = gr.Markdown(
-                                value="*Run a query to see AI-powered insights here.*",
+                            # Conversation history
+                            chatbot = gr.Chatbot(
+                                label="Conversation",
+                                height=500,
+                                show_label=True,
                             )
 
-                    # TECHNICAL DETAILS: Collapsible accordions
-                    with gr.Accordion("Generated SQL (click to copy)", open=False):
-                        sql_output = gr.Code(
-                            label="SQL",
-                            language="sql",
-                            value="-- Run a query to see generated SQL here",
-                        )
+                        # RIGHT PANE: Tabbed results
+                        with gr.Column(scale=5):
+                            with gr.Tabs():
+                                with gr.Tab("📊 Results"):
+                                    gr.Markdown("### Query Results")
+                                    chart_output = gr.Plot(
+                                        label="Visualization",
+                                        show_label=False,
+                                    )
+                                    gr.Markdown(
+                                        "*Charts appear automatically when query returns numeric data. "
+                                        "Supports time series and categorical comparisons.*"
+                                    )
 
-                    with gr.Accordion("Query History", open=False):
-                        history_output = gr.Markdown(
-                            value="*No queries yet.*",
-                        )
+                                with gr.Tab("🔍 SQL"):
+                                    gr.Markdown("### Generated SQL Query")
+                                    sql_output = gr.Code(
+                                        label="SQL Code (click to copy)",
+                                        language="sql",
+                                        value="-- Run a query to see the generated SQL here\n-- The query will be optimized for your database",
+                                        lines=15,
+                                    )
 
-                    with gr.Accordion("RAG Context (schema retrieval)", open=False):
-                        rag_output = gr.Markdown(
-                            value="*RAG context will appear here after a query.*",
-                        )
+                                with gr.Tab("💡 Insights"):
+                                    gr.Markdown("### AI-Powered Business Insights")
+                                    insights_output = gr.Markdown(
+                                        value="""
+**No insights yet** — Run a query to get AI-generated analysis.
+
+**What you'll see:**
+- 📈 Trend detection and patterns
+- 🎯 Key findings and anomalies
+- 💼 Business recommendations
+- 📊 Statistical summaries
+                                        """,
+                                    )
+
+                                with gr.Tab("🗂️ History"):
+                                    gr.Markdown("### Query History")
+                                    history_output = gr.Markdown(
+                                        value="*No queries yet. Start asking questions!*",
+                                    )
+
+                                with gr.Tab("🎯 Context"):
+                                    gr.Markdown("### RAG Schema Retrieval")
+                                    rag_output = gr.Markdown(
+                                        value="""
+**RAG context will appear here after a query.**
+
+**How it works:**
+- 🔍 Semantic search finds relevant tables/columns
+- 🎯 FAISS vector database matches your question to schema elements
+- ⚡ Only relevant schema is sent to LLM (faster, more accurate)
+                                        """,
+                                    )
 
                 # Tab 2: Schema Explorer
-                with gr.Tab("Schema & Sample Data"):
-                    gr.Markdown("## Database Schema")
+                with gr.Tab("📋 Schema & Data"):
+                    gr.Markdown("## 🗄️ Database Schema")
                     gr.Markdown(self._build_schema_explorer_text())
-                    gr.Markdown("## Sample Data")
+                    gr.Markdown("## 📊 Sample Data Preview")
                     gr.Markdown(self._build_sample_data_text())
 
                 # Tab 3: System Status
-                with gr.Tab("System Status"):
+                with gr.Tab("⚙️ System Status"):
                     gr.Markdown("## System Status")
                     gr.Markdown(self._build_status_text())
                     gr.Markdown("## About")
@@ -769,10 +820,25 @@ class QueryBuddyApp:
                 self._query_history.clear()
                 return (
                     [], "", None,
-                    "*Run a query to see AI-powered insights here.*",
-                    "*No queries yet.*",
-                    "*RAG context will appear here after a query.*",
-                    "-- Run a query to see generated SQL here",
+                    """
+**No insights yet** — Run a query to get AI-generated analysis.
+
+**What you'll see:**
+- 📈 Trend detection and patterns
+- 🎯 Key findings and anomalies
+- 💼 Business recommendations
+- 📊 Statistical summaries
+                    """,
+                    "*No queries yet. Start asking questions!*",
+                    """
+**RAG context will appear here after a query.**
+
+**How it works:**
+- 🔍 Semantic search finds relevant tables/columns
+- 🎯 FAISS vector database matches your question to schema elements
+- ⚡ Only relevant schema is sent to LLM (faster, more accurate)
+                    """,
+                    "-- Run a query to see the generated SQL here\n-- The query will be optimized for your database",
                 )
 
             clear.click(clear_chat, outputs=[chatbot, msg, chart_output, insights_output, history_output, rag_output, sql_output])
