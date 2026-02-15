@@ -934,9 +934,17 @@ class QueryBuddyApp:
                 # Tab 1: Chat Interface with 2-pane layout (MAIN TAB)
                 with gr.Tab("💬 Chat"):
                     with gr.Row():
-                        # LEFT PANE: Chat interface
+                        # LEFT PANE: Chat interface (input at bottom, ChatGPT style)
                         with gr.Column(scale=5):
-                            # Input controls
+                            # Conversation history (at top)
+                            chatbot = gr.Chatbot(
+                                label="Conversation",
+                                height=500,
+                                show_label=True,
+                                autoscroll=True,  # Auto-scroll to latest message
+                            )
+
+                            # Input controls (at bottom - ChatGPT style)
                             with gr.Row():
                                 msg = gr.Textbox(
                                     label="Ask a question about your data",
@@ -953,7 +961,7 @@ class QueryBuddyApp:
 
                             export_file = gr.File(label="Download Results", visible=False)
 
-                            # Example query chips
+                            # Example query chips (at bottom)
                             gr.Markdown("**💡 Quick Start:**")
                             with gr.Row():
                                 ex1 = gr.Button("Top customers", size="sm")
@@ -965,14 +973,6 @@ class QueryBuddyApp:
                                 ex6 = gr.Button("January products", size="sm")
                                 ex7 = gr.Button("Large orders", size="sm")
                                 ex8 = gr.Button("Inactive customers", size="sm")
-
-                            # Conversation history
-                            chatbot = gr.Chatbot(
-                                label="Conversation",
-                                height=500,
-                                show_label=True,
-                                autoscroll=True,  # Auto-scroll to latest message
-                            )
 
                         # RIGHT PANE: Tabbed results
                         with gr.Column(scale=5):
