@@ -122,7 +122,22 @@ Provide 2-3 key insights or patterns from this data. Be specific and actionable.
         except Exception as e:
             import logging
             logger = logging.getLogger(__name__)
-            logger.warning(f"LLM insights generation failed: {type(e).__name__}: {str(e)}")
+            error_type = type(e).__name__
+            error_msg = str(e)
+
+            # Enhanced logging with specific error types
+            logger.warning(
+                f"LLM insights generation failed: {error_type}: {error_msg}"
+            )
+
+            # Provide specific guidance based on error type
+            if "rate" in error_msg.lower() or "429" in error_msg:
+                logger.warning("OpenAI rate limit exceeded - will use local fallback")
+            elif "quota" in error_msg.lower() or "billing" in error_msg.lower():
+                logger.error("OpenAI quota/billing issue detected - check your account")
+            elif "authentication" in error_msg.lower() or "401" in error_msg:
+                logger.error("OpenAI authentication failed - check API key")
+
             return (
                 "**AI Insights unavailable** - The LLM service encountered an error. "
                 "This could be due to rate limiting or network issues. "

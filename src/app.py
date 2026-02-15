@@ -84,8 +84,10 @@ class QueryBuddyApp:
             self.insight_generator = InsightGenerator(
                 openai_api_key=settings.openai_api_key, model=settings.openai_model
             )
+            logger.info(f"🤖 Using OpenAI {settings.openai_model} for AI insights")
         else:
             self.insight_generator = LocalInsightGenerator()
+            logger.info("🔧 Using LocalInsightGenerator (demo mode - no OpenAI API key)")
 
         # Initialize optimizer
         self.optimizer = QueryOptimizer()
@@ -491,13 +493,15 @@ class QueryBuddyApp:
                 insights_md = self.insight_generator.generate_insights(data, user_message)
                 # If insights indicate API failure, try local fallback
                 if "AI Insights unavailable" in insights_md and self.using_real_llm:
-                    logger.warning("LLM insights failed, falling back to local generator")
+                    logger.warning("⚠️ LLM insights failed (likely rate limit or quota), falling back to local generator")
                     local_gen = LocalInsightGenerator()
                     insights_md = local_gen.generate_insights(data, user_message)
+                    logger.info("✅ Local insights generated successfully as fallback")
             except Exception as e:
-                logger.warning(f"Insight generation failed: {e}, using local fallback")
+                logger.warning(f"⚠️ Insight generation failed: {e}, using local fallback")
                 local_gen = LocalInsightGenerator()
                 insights_md = local_gen.generate_insights(data, user_message)
+                logger.info("✅ Local insights generated successfully as fallback")
 
             # Update context and structured query plan
             response_text = "\n".join(response_lines)
