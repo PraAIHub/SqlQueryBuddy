@@ -85,10 +85,14 @@ class SQLPromptBuilder:
         "'of them', 'from that'), you MUST modify the SQL from the "
         "conversation history. Add WHERE clauses or wrap it as a subquery "
         "to apply the requested filter. Do NOT repeat the original query.\n"
-        "5. When finding customers with no recent orders, use NOT IN or "
-        "NOT EXISTS with a subquery on the orders table, never LEFT JOIN "
-        "which produces duplicate rows.\n"
-        "6. Return ONLY the raw SQL query. No comments, no explanations, "
+        "5. CRITICAL - Customers with no recent orders pattern:\n"
+        "   CORRECT: SELECT c.* FROM customers c WHERE c.customer_id NOT IN "
+        "(SELECT customer_id FROM orders WHERE order_date >= date('now', '-3 months'))\n"
+        "   WRONG: Never reference orders table columns in WHERE without JOIN\n"
+        "   Use NOT IN or NOT EXISTS subquery, never LEFT JOIN (causes duplicates).\n"
+        "6. NEVER reference table aliases that are not in the FROM or JOIN clauses. "
+        "All tables used in WHERE must be either in FROM clause or in a subquery.\n"
+        "7. Return ONLY the raw SQL query. No comments, no explanations, "
         "no markdown. The response must start with SELECT or WITH."
     )
 

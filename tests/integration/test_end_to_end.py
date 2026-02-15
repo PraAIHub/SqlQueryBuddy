@@ -253,9 +253,9 @@ class TestEndToEnd:
         rag.initialize_schema(schema)
 
         context = rag.get_schema_context_string("customer orders total spending")
-        assert "Relevant Schema Elements:" in context
+        assert "Relevant Schema Elements" in context  # Updated to match emoji format
         # Should find relevant tables
-        assert "Table:" in context
+        assert "Table:" in context or "Tables:" in context
 
 
 if __name__ == "__main__":

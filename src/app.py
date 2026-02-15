@@ -129,10 +129,23 @@ class QueryBuddyApp:
 
     def _generate_chart(self, data: list) -> Optional[matplotlib.figure.Figure]:
         """Auto-detect chartable data and return a matplotlib Figure or None."""
-        if not data or len(data) < 2:
+        if not data:
             return None
 
         headers = list(data[0].keys())
+
+        # Special case: Single row with single numeric value (COUNT, SUM, etc.)
+        if len(data) == 1 and len(headers) == 1:
+            col_name = headers[0]
+            value = data[0].get(col_name)
+            if isinstance(value, (int, float)):
+                return self._generate_single_value_card(col_name, value)
+            return None
+
+        # Need at least 2 rows for regular charts
+        if len(data) < 2:
+            return None
+
         if len(headers) < 2:
             return None
 
@@ -205,6 +218,60 @@ class QueryBuddyApp:
         ax.grid(axis="x", alpha=0.3)
         fig.tight_layout()
         # Note: caller should plt.close(fig) after Gradio consumes it
+        return fig
+
+    def _generate_single_value_card(self, label: str, value: float) -> matplotlib.figure.Figure:
+        """Generate a large number card for single-value results (COUNT, SUM, etc.)."""
+        fig, ax = plt.subplots(figsize=(8, 4))
+        ax.axis('off')  # Hide axes
+
+        # Format the value with proper separators
+        if abs(value) >= 1000000:
+            display_value = f"{value/1000000:.1f}M"
+        elif abs(value) >= 1000:
+            display_value = f"{value/1000:.1f}K"
+        elif value == int(value):
+            display_value = f"{int(value):,}"
+        else:
+            display_value = f"{value:,.2f}"
+
+        # Check if it's a currency column
+        label_lower = label.lower()
+        is_currency = any(hint in label_lower for hint in self.CURRENCY_HINTS)
+        if is_currency and not any(ex in label_lower for ex in self.CURRENCY_EXCLUDE):
+            if abs(value) < 1000:
+                display_value = f"${value:,.2f}"
+            else:
+                display_value = "$" + display_value
+
+        # Draw large number in center
+        ax.text(
+            0.5, 0.55, display_value,
+            ha='center', va='center',
+            fontsize=60, fontweight='bold',
+            color='#2563eb',
+            transform=ax.transAxes
+        )
+
+        # Draw label below
+        formatted_label = label.replace('_', ' ').title()
+        ax.text(
+            0.5, 0.25, formatted_label,
+            ha='center', va='center',
+            fontsize=16, color='#64748b',
+            transform=ax.transAxes
+        )
+
+        # Add subtle background
+        rect = plt.Rectangle(
+            (0.15, 0.15), 0.7, 0.7,
+            fill=True, facecolor='#f8fafc',
+            edgecolor='#e2e8f0', linewidth=2,
+            transform=ax.transAxes, zorder=-1
+        )
+        ax.add_patch(rect)
+
+        fig.tight_layout()
         return fig
 
     def _format_history(self) -> str:

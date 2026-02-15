@@ -119,8 +119,15 @@ Provide 2-3 key insights or patterns from this data. Be specific and actionable.
 
             response = self.llm.invoke(messages)
             return response.content.strip()
-        except Exception:
-            return "Unable to generate insights from the results."
+        except Exception as e:
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.warning(f"LLM insights generation failed: {type(e).__name__}: {str(e)}")
+            return (
+                "**AI Insights unavailable** - The LLM service encountered an error. "
+                "This could be due to rate limiting or network issues. "
+                "The query results above are still valid."
+            )
 
     @staticmethod
     def _empty_result_insight(user_query: str) -> str:

@@ -38,7 +38,7 @@ class Settings(BaseSettings):
 
     # RAG Configuration
     top_k_similar: int = Field(default=5, alias="TOP_K_SIMILAR")
-    similarity_threshold: float = Field(default=0.6, alias="SIMILARITY_THRESHOLD")  # Balanced for better query coverage
+    similarity_threshold: float = Field(default=0.4, alias="SIMILARITY_THRESHOLD")  # Lowered for better schema coverage
 
     # Server Configuration
     server_host: str = Field(default="0.0.0.0", alias="SERVER_HOST")
