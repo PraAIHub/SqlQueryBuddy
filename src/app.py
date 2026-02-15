@@ -1199,21 +1199,84 @@ What you'll see:
                     gr.Markdown("## 📊 Sample Data Preview")
                     gr.Markdown(self._build_sample_data_text())
 
-                # Tab 4: System Status
-                with gr.Tab("⚙️ System Status"):
-                    gr.Markdown("## System Status")
+                # Tab 4: About & Status
+                with gr.Tab("ℹ️ About"):
+                    gr.HTML("""
+<div style='max-width: 720px; margin: 0 auto;'>
+    <h2 style='margin-bottom: 4px;'>SQL Query Buddy</h2>
+    <p style='color: #6b7280; margin-top: 0; font-size: 14px;'>
+        Conversational AI for Smart Data Insights
+    </p>
+
+    <p style='line-height: 1.7; font-size: 14px; color: #374151;'>
+        SQL Query Buddy lets <strong>non-technical users</strong> explore databases
+        using plain English. Ask a question, get an optimized SQL query, a
+        chart, and AI-generated business insights — all in one conversation.
+    </p>
+
+    <h3 style='margin-bottom: 8px;'>How It Works</h3>
+    <div style='display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 16px;'>
+        <div style='background: #f9fafb; border-radius: 8px; padding: 12px; border: 1px solid #e5e7eb;'>
+            <div style='font-weight: 600; font-size: 13px; color: #7c3aed; margin-bottom: 4px;'>1. Ask</div>
+            <div style='font-size: 12px; color: #4b5563;'>Type a question in plain English. NLP extracts intent &amp; entities.</div>
+        </div>
+        <div style='background: #f9fafb; border-radius: 8px; padding: 12px; border: 1px solid #e5e7eb;'>
+            <div style='font-weight: 600; font-size: 13px; color: #7c3aed; margin-bottom: 4px;'>2. Retrieve</div>
+            <div style='font-size: 12px; color: #4b5563;'>FAISS vector search finds relevant tables &amp; columns (RAG).</div>
+        </div>
+        <div style='background: #f9fafb; border-radius: 8px; padding: 12px; border: 1px solid #e5e7eb;'>
+            <div style='font-weight: 600; font-size: 13px; color: #7c3aed; margin-bottom: 4px;'>3. Generate</div>
+            <div style='font-size: 12px; color: #4b5563;'>LangChain + GPT-4 writes optimized SQL from the schema context.</div>
+        </div>
+        <div style='background: #f9fafb; border-radius: 8px; padding: 12px; border: 1px solid #e5e7eb;'>
+            <div style='font-weight: 600; font-size: 13px; color: #7c3aed; margin-bottom: 4px;'>4. Analyze</div>
+            <div style='font-size: 12px; color: #4b5563;'>Results are charted, insights generated, and optimizations suggested.</div>
+        </div>
+    </div>
+
+    <h3 style='margin-bottom: 8px;'>Key Features</h3>
+    <table style='width: 100%; border-collapse: collapse; font-size: 13px; margin-bottom: 16px;'>
+        <tr style='border-bottom: 1px solid #e5e7eb;'>
+            <td style='padding: 6px 8px; font-weight: 600; color: #374151;'>SQL Generation</td>
+            <td style='padding: 6px 8px; color: #6b7280;'>LangChain + GPT-4 with auto-fix retry on errors</td>
+        </tr>
+        <tr style='border-bottom: 1px solid #e5e7eb;'>
+            <td style='padding: 6px 8px; font-weight: 600; color: #374151;'>RAG Retrieval</td>
+            <td style='padding: 6px 8px; color: #6b7280;'>FAISS vector DB for semantic schema matching</td>
+        </tr>
+        <tr style='border-bottom: 1px solid #e5e7eb;'>
+            <td style='padding: 6px 8px; font-weight: 600; color: #374151;'>AI Insights</td>
+            <td style='padding: 6px 8px; color: #6b7280;'>Trends, anomalies, and recommendations (LLM + local fallback)</td>
+        </tr>
+        <tr style='border-bottom: 1px solid #e5e7eb;'>
+            <td style='padding: 6px 8px; font-weight: 600; color: #374151;'>Query Optimizer</td>
+            <td style='padding: 6px 8px; color: #6b7280;'>Performance checks, assumptions, and next-step suggestions</td>
+        </tr>
+        <tr style='border-bottom: 1px solid #e5e7eb;'>
+            <td style='padding: 6px 8px; font-weight: 600; color: #374151;'>Context Memory</td>
+            <td style='padding: 6px 8px; color: #6b7280;'>Multi-turn conversations with query plan tracking</td>
+        </tr>
+        <tr>
+            <td style='padding: 6px 8px; font-weight: 600; color: #374151;'>Visualization</td>
+            <td style='padding: 6px 8px; color: #6b7280;'>Auto-charts: time series, bar charts, single-value cards</td>
+        </tr>
+    </table>
+
+    <h3 style='margin-bottom: 8px;'>Tech Stack</h3>
+    <div style='display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 16px;'>
+        <span style='background: #ede9fe; color: #5b21b6; padding: 3px 10px; border-radius: 12px; font-size: 11px; font-weight: 500;'>Python</span>
+        <span style='background: #dbeafe; color: #1e40af; padding: 3px 10px; border-radius: 12px; font-size: 11px; font-weight: 500;'>Gradio</span>
+        <span style='background: #dcfce7; color: #166534; padding: 3px 10px; border-radius: 12px; font-size: 11px; font-weight: 500;'>LangChain</span>
+        <span style='background: #fef3c7; color: #92400e; padding: 3px 10px; border-radius: 12px; font-size: 11px; font-weight: 500;'>GPT-4</span>
+        <span style='background: #e0e7ff; color: #3730a3; padding: 3px 10px; border-radius: 12px; font-size: 11px; font-weight: 500;'>FAISS</span>
+        <span style='background: #f3f4f6; color: #374151; padding: 3px 10px; border-radius: 12px; font-size: 11px; font-weight: 500;'>SQLite</span>
+        <span style='background: #fce7f3; color: #9d174d; padding: 3px 10px; border-radius: 12px; font-size: 11px; font-weight: 500;'>Matplotlib</span>
+        <span style='background: #ccfbf1; color: #115e59; padding: 3px 10px; border-radius: 12px; font-size: 11px; font-weight: 500;'>Docker</span>
+    </div>
+</div>
+                    """)
+                    gr.Markdown("### System Status")
                     gr.Markdown(self._build_status_text())
-                    gr.Markdown("## About")
-                    gr.Markdown(
-                        "**SQL Query Buddy** converts natural language questions "
-                        "into SQL queries using:\n"
-                        "- **LangChain + GPT-4** for SQL generation\n"
-                        "- **FAISS** vector database for RAG-powered schema retrieval\n"
-                        "- **NLP processing** for intent detection and entity extraction\n"
-                        "- **Query optimization** with performance suggestions\n"
-                        "- **AI insights** with pattern detection and trend analysis\n"
-                        "- **Context retention** for multi-turn conversations\n"
-                    )
 
             # Hidden textbox to trigger scroll via JavaScript
             scroll_trigger = gr.Textbox(visible=False, value="0")
