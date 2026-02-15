@@ -823,24 +823,57 @@ class QueryBuddyApp:
                 }
             </style>
             <script>
-                // Force chatbot to scroll to bottom on new messages
+                // Force chatbot to scroll to bottom - improved for Gradio 6.x
                 function scrollChatbotToBottom() {
-                    // Find all chatbot scroll containers
-                    const chatbots = document.querySelectorAll('.chatbot .overflow-y-auto');
-                    chatbots.forEach(chatbot => {
-                        if (chatbot) {
-                            chatbot.scrollTop = chatbot.scrollHeight;
-                        }
-                    });
+                    // Try multiple selectors for Gradio 6.x compatibility
+                    const selectors = [
+                        '.chatbot .overflow-y-auto',
+                        '.chatbot [class*="overflow"]',
+                        'gradio-chatbot .overflow-y-auto',
+                        '[data-testid="chatbot"] .overflow-y-auto',
+                        '.chatbot > div > div'
+                    ];
+
+                    let scrolled = false;
+                    for (const selector of selectors) {
+                        const elements = document.querySelectorAll(selector);
+                        elements.forEach(element => {
+                            if (element && element.scrollHeight > element.clientHeight) {
+                                element.scrollTop = element.scrollHeight;
+                                scrolled = true;
+                                console.log('Scrolled chatbot using selector:', selector);
+                            }
+                        });
+                        if (scrolled) break;
+                    }
+
+                    if (!scrolled) {
+                        console.log('No scrollable chatbot element found');
+                    }
                 }
 
                 // Use MutationObserver to detect when chatbot content changes
                 function setupChatbotAutoScroll() {
-                    const chatbotContainer = document.querySelector('.chatbot');
+                    // Try to find chatbot container with multiple approaches
+                    const chatbotSelectors = [
+                        '.chatbot',
+                        'gradio-chatbot',
+                        '[data-testid="chatbot"]'
+                    ];
+
+                    let chatbotContainer = null;
+                    for (const selector of chatbotSelectors) {
+                        chatbotContainer = document.querySelector(selector);
+                        if (chatbotContainer) {
+                            console.log('Found chatbot container using:', selector);
+                            break;
+                        }
+                    }
+
                     if (chatbotContainer) {
                         const observer = new MutationObserver((mutations) => {
                             // Scroll to bottom whenever chatbot content changes
-                            scrollChatbotToBottom();
+                            requestAnimationFrame(scrollChatbotToBottom);
                         });
 
                         observer.observe(chatbotContainer, {
@@ -848,6 +881,10 @@ class QueryBuddyApp:
                             subtree: true,
                             characterData: true
                         });
+
+                        console.log('Chatbot auto-scroll observer set up successfully');
+                    } else {
+                        console.log('Could not find chatbot container for auto-scroll');
                     }
                 }
 
@@ -858,8 +895,10 @@ class QueryBuddyApp:
                     setupChatbotAutoScroll();
                 }
 
-                // Also try to set up after a short delay to ensure Gradio is ready
+                // Also try multiple times to ensure Gradio is ready
                 setTimeout(setupChatbotAutoScroll, 1000);
+                setTimeout(setupChatbotAutoScroll, 2000);
+                setTimeout(setupChatbotAutoScroll, 3000);
             </script>
             """)
 
