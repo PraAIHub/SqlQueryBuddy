@@ -191,7 +191,15 @@ class QueryBuddyApp:
         if numeric_col is None:
             return None
 
+        # Modern chart style
         fig, ax = plt.subplots(figsize=(8, 4))
+        fig.patch.set_facecolor('#ffffff')
+        ax.set_facecolor('#fafafa')
+        ax.spines['top'].set_visible(False)
+        ax.spines['right'].set_visible(False)
+        ax.spines['left'].set_color('#e5e7eb')
+        ax.spines['bottom'].set_color('#e5e7eb')
+        ax.tick_params(colors='#6b7280', labelsize=9)
 
         # Friendly column labels for titles
         friendly_metric = numeric_col.replace('_', ' ').title()
@@ -209,20 +217,24 @@ class QueryBuddyApp:
                 except (ValueError, TypeError):
                     values.append(0)
 
-            ax.plot(range(len(labels)), values, marker="o", linewidth=2, color="#2563eb",
-                    markersize=4 if len(labels) > 15 else 6)
+            x = range(len(labels))
+            ax.plot(x, values, marker="o", linewidth=2.5, color="#7c3aed",
+                    markersize=4 if len(labels) > 15 else 5,
+                    markerfacecolor="#ffffff", markeredgewidth=1.5, markeredgecolor="#7c3aed")
+            ax.fill_between(x, values, alpha=0.08, color="#7c3aed")
             # Reduce x-axis tick clutter
-            max_ticks = 12
+            max_ticks = 10
             if len(labels) > max_ticks:
                 step = math.ceil(len(labels) / max_ticks)
                 tick_positions = list(range(0, len(labels), step))
                 ax.set_xticks(tick_positions)
-                ax.set_xticklabels([labels[i] for i in tick_positions], rotation=30, ha="right", fontsize=8)
+                ax.set_xticklabels([labels[i] for i in tick_positions], rotation=30, ha="right")
             else:
                 ax.set_xticks(range(len(labels)))
-                ax.set_xticklabels(labels, rotation=30, ha="right", fontsize=8)
-            ax.set_title(f"{friendly_metric} over {friendly_date}", fontsize=12, fontweight="bold")
-            ax.set_ylabel(friendly_metric)
+                ax.set_xticklabels(labels, rotation=30, ha="right")
+            ax.set_title(f"{friendly_metric} over {friendly_date}", fontsize=13, fontweight="bold", color="#1f2937", pad=12)
+            ax.set_ylabel(friendly_metric, fontsize=10, color="#6b7280")
+            ax.grid(axis="y", alpha=0.15, color="#d1d5db")
         elif categorical_col:
             rows = data[:20]
             values = []
@@ -232,17 +244,21 @@ class QueryBuddyApp:
                 except (ValueError, TypeError):
                     values.append(0)
             labels = [str(row.get(categorical_col, ""))[:20] for row in rows]
-            ax.barh(range(len(labels)), values, color="#2563eb")
+            bars = ax.barh(range(len(labels)), values, color="#7c3aed", height=0.6, edgecolor="none")
             ax.set_yticks(range(len(labels)))
-            ax.set_yticklabels(labels, fontsize=9)
-            ax.set_title(f"{friendly_metric} by {friendly_cat}", fontsize=12, fontweight="bold")
-            ax.set_xlabel(friendly_metric)
+            ax.set_yticklabels(labels, fontsize=10)
+            ax.set_title(f"{friendly_metric} by {friendly_cat}", fontsize=13, fontweight="bold", color="#1f2937", pad=12)
+            ax.set_xlabel(friendly_metric, fontsize=10, color="#6b7280")
             ax.invert_yaxis()
+            ax.grid(axis="x", alpha=0.15, color="#d1d5db")
+            # Value labels on bars
+            for bar, val in zip(bars, values):
+                ax.text(bar.get_width() + max(values) * 0.01, bar.get_y() + bar.get_height() / 2,
+                        f'{val:,.0f}', va='center', fontsize=8, color='#6b7280')
         else:
             plt.close(fig)
             return None
 
-        ax.grid(axis="x", alpha=0.3)
         fig.tight_layout()
         return fig
 
@@ -281,7 +297,8 @@ class QueryBuddyApp:
     def _generate_single_value_card(self, label: str, value: float) -> matplotlib.figure.Figure:
         """Generate a large number card for single-value results (COUNT, SUM, etc.)."""
         fig, ax = plt.subplots(figsize=(8, 4))
-        ax.axis('off')  # Hide axes
+        fig.patch.set_facecolor('#ffffff')
+        ax.axis('off')
 
         # Format the value with proper separators
         if abs(value) >= 1000000:
@@ -302,32 +319,34 @@ class QueryBuddyApp:
             else:
                 display_value = "$" + display_value
 
+        # Rounded card background
+        rect = plt.Rectangle(
+            (0.1, 0.1), 0.8, 0.8,
+            fill=True, facecolor='#f5f3ff',
+            edgecolor='#e9d5ff', linewidth=1.5,
+            transform=ax.transAxes, zorder=-1,
+            clip_on=False,
+        )
+        rect.set_joinstyle('round')
+        ax.add_patch(rect)
+
         # Draw large number in center
         ax.text(
-            0.5, 0.55, display_value,
+            0.5, 0.58, display_value,
             ha='center', va='center',
-            fontsize=60, fontweight='bold',
-            color='#2563eb',
+            fontsize=56, fontweight='bold',
+            color='#7c3aed',
             transform=ax.transAxes
         )
 
         # Draw label below
         formatted_label = label.replace('_', ' ').title()
         ax.text(
-            0.5, 0.25, formatted_label,
+            0.5, 0.28, formatted_label,
             ha='center', va='center',
-            fontsize=16, color='#64748b',
+            fontsize=14, color='#6b7280',
             transform=ax.transAxes
         )
-
-        # Add subtle background
-        rect = plt.Rectangle(
-            (0.15, 0.15), 0.7, 0.7,
-            fill=True, facecolor='#f8fafc',
-            edgecolor='#e2e8f0', linewidth=2,
-            transform=ax.transAxes, zorder=-1
-        )
-        ax.add_patch(rect)
 
         fig.tight_layout()
         return fig
@@ -951,6 +970,22 @@ class QueryBuddyApp:
                     border-color: #8b5cf6 !important;
                     color: #5b21b6 !important;
                 }
+
+                /* Consistent tab panel typography */
+                .gradio-container .prose h3,
+                .gradio-container .prose h4 {
+                    color: #1f2937;
+                    letter-spacing: -0.01em;
+                }
+                .gradio-container .prose p,
+                .gradio-container .prose li {
+                    color: #4b5563;
+                    font-size: 14px;
+                    line-height: 1.6;
+                }
+                .gradio-container .prose table {
+                    font-size: 13px;
+                }
             </style>
             """)
 
@@ -1104,15 +1139,15 @@ class QueryBuddyApp:
                             gr.HTML(status_html)
                             with gr.Tabs():
                                 with gr.Tab("📊 Results"):
-                                    gr.Markdown("""
-### Query Results
-
-**👉 Run a query to see results here**
-
-Charts appear automatically when your query returns:
-- 📈 **Time series data** (revenue over time, monthly trends)
-- 📊 **Category comparisons** (sales by region, products by category)
-- 🔢 **Single metrics** (total count, sum, average)
+                                    gr.HTML("""
+<div style='text-align: center; padding: 48px 24px; color: #9ca3af;'>
+    <div style='font-size: 40px; margin-bottom: 8px; opacity: 0.5;'>📊</div>
+    <div style='font-size: 15px; font-weight: 600; color: #6b7280; margin-bottom: 6px;'>No results yet</div>
+    <div style='font-size: 13px; line-height: 1.6; max-width: 320px; margin: 0 auto;'>
+        Run a query to see charts here.<br>
+        Time series, bar charts, and single-value cards render automatically.
+    </div>
+</div>
                                     """)
 
                                     # Quick filters
@@ -1129,16 +1164,14 @@ Charts appear automatically when your query returns:
                                     )
 
                                 with gr.Tab("🔍 SQL"):
-                                    gr.Markdown("""
-### Generated SQL Query
-
-**👉 Your optimized SQL will appear here**
-
-What you'll see:
-- ✅ **Syntax-validated SQL** optimized for SQLite
-- 📝 **Explanation** of what the query does
-- 🎯 **Performance suggestions** (if applicable)
-- 💡 **Assumptions** made by the AI
+                                    gr.HTML("""
+<div style='text-align: center; padding: 32px 24px; color: #9ca3af;'>
+    <div style='font-size: 40px; margin-bottom: 8px; opacity: 0.5;'>🔍</div>
+    <div style='font-size: 15px; font-weight: 600; color: #6b7280; margin-bottom: 6px;'>No SQL generated yet</div>
+    <div style='font-size: 13px; max-width: 300px; margin: 0 auto;'>
+        Your optimized SQL query will appear here after you ask a question.
+    </div>
+</div>
                                     """)
                                     sql_output = gr.Code(
                                         label="SQL Code",
@@ -1153,35 +1186,41 @@ What you'll see:
                                     )
 
                                 with gr.Tab("💡 Insights"):
-                                    gr.Markdown("### AI-Powered Business Insights")
-                                    insights_output = gr.Markdown(
+                                    insights_output = gr.HTML(
                                         value="""
-**No insights yet** — Run a query to get AI-generated analysis.
-
-**What you'll see:**
-- 📈 Trend detection and patterns
-- 🎯 Key findings and anomalies
-- 💼 Business recommendations
-- 📊 Statistical summaries
+<div style='text-align: center; padding: 48px 24px; color: #9ca3af;'>
+    <div style='font-size: 40px; margin-bottom: 8px; opacity: 0.5;'>💡</div>
+    <div style='font-size: 15px; font-weight: 600; color: #6b7280; margin-bottom: 6px;'>No insights yet</div>
+    <div style='font-size: 13px; line-height: 1.6; max-width: 320px; margin: 0 auto;'>
+        Run a query to get AI-generated analysis.<br>
+        Trends, anomalies, key metrics, and recommendations.
+    </div>
+</div>
                                         """,
                                     )
 
                                 with gr.Tab("🗂️ History"):
-                                    gr.Markdown("### Query History")
                                     history_output = gr.Markdown(
-                                        value="*No queries yet.* Run a query to see your session history here.",
+                                        value="""
+<div style='text-align: center; padding: 48px 24px; color: #9ca3af;'>
+    <div style='font-size: 40px; margin-bottom: 8px; opacity: 0.5;'>🗂️</div>
+    <div style='font-size: 15px; font-weight: 600; color: #6b7280; margin-bottom: 6px;'>No history yet</div>
+    <div style='font-size: 13px;'>Your query history will appear here as you explore.</div>
+</div>
+                                        """,
                                     )
 
                                 with gr.Tab("🎯 Context"):
-                                    gr.Markdown("### RAG Schema Retrieval")
                                     rag_output = gr.Markdown(
                                         value="""
-**RAG context will appear here after a query.**
-
-**How it works:**
-- 🔍 Semantic search finds relevant tables/columns
-- 🎯 FAISS vector database matches your question to schema elements
-- ⚡ Only relevant schema is sent to LLM (faster, more accurate)
+<div style='text-align: center; padding: 48px 24px; color: #9ca3af;'>
+    <div style='font-size: 40px; margin-bottom: 8px; opacity: 0.5;'>🎯</div>
+    <div style='font-size: 15px; font-weight: 600; color: #6b7280; margin-bottom: 6px;'>No context retrieved yet</div>
+    <div style='font-size: 13px; line-height: 1.6; max-width: 320px; margin: 0 auto;'>
+        RAG schema retrieval results will appear here.<br>
+        Shows which tables and columns were matched to your query.
+    </div>
+</div>
                                         """,
                                     )
 
@@ -1288,14 +1327,21 @@ What you'll see:
             # Loading card HTML for right panel during processing
             LOADING_CARD_HTML = """
 <div style='display: flex; flex-direction: column; align-items: center; justify-content: center;
-            padding: 40px 20px; color: #6b7280;'>
-    <div style='font-size: 32px; margin-bottom: 12px; animation: pulse 1.5s ease-in-out infinite;'>⚙️</div>
-    <div style='font-weight: 600; font-size: 15px; color: #374151; margin-bottom: 8px;'>Processing your query...</div>
-    <div style='font-size: 12px; color: #9ca3af; text-align: center; line-height: 1.6;'>
-        Generating SQL &rarr; Executing &rarr; Rendering chart &rarr; Generating insights
+            padding: 48px 24px;'>
+    <div style='width: 48px; height: 48px; border: 3px solid #e9d5ff; border-top-color: #7c3aed;
+                border-radius: 50%; animation: spin 0.8s linear infinite; margin-bottom: 16px;'></div>
+    <div style='font-weight: 600; font-size: 15px; color: #374151; margin-bottom: 10px;'>Analyzing your query</div>
+    <div style='display: flex; gap: 6px; align-items: center; font-size: 12px; color: #9ca3af;'>
+        <span style='background: #f5f3ff; padding: 3px 8px; border-radius: 10px; border: 1px solid #e9d5ff;'>SQL</span>
+        <span>&rarr;</span>
+        <span style='background: #f5f3ff; padding: 3px 8px; border-radius: 10px; border: 1px solid #e9d5ff;'>Execute</span>
+        <span>&rarr;</span>
+        <span style='background: #f5f3ff; padding: 3px 8px; border-radius: 10px; border: 1px solid #e9d5ff;'>Chart</span>
+        <span>&rarr;</span>
+        <span style='background: #f5f3ff; padding: 3px 8px; border-radius: 10px; border: 1px solid #e9d5ff;'>Insights</span>
     </div>
 </div>
-<style>@keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.4; } }</style>
+<style>@keyframes spin { to { transform: rotate(360deg); } }</style>
 """
 
             # Wrapper function to handle loading states
@@ -1395,30 +1441,44 @@ What you'll see:
                 process_with_loading, [msg, chatbot], query_outputs
             )
 
+            # Empty state HTML cards (reused in clear_chat)
+            EMPTY_INSIGHTS = """
+<div style='text-align: center; padding: 48px 24px; color: #9ca3af;'>
+    <div style='font-size: 40px; margin-bottom: 8px; opacity: 0.5;'>💡</div>
+    <div style='font-size: 15px; font-weight: 600; color: #6b7280; margin-bottom: 6px;'>No insights yet</div>
+    <div style='font-size: 13px; line-height: 1.6; max-width: 320px; margin: 0 auto;'>
+        Run a query to get AI-generated analysis.<br>
+        Trends, anomalies, key metrics, and recommendations.
+    </div>
+</div>
+"""
+            EMPTY_HISTORY = """
+<div style='text-align: center; padding: 48px 24px; color: #9ca3af;'>
+    <div style='font-size: 40px; margin-bottom: 8px; opacity: 0.5;'>🗂️</div>
+    <div style='font-size: 15px; font-weight: 600; color: #6b7280; margin-bottom: 6px;'>No history yet</div>
+    <div style='font-size: 13px;'>Your query history will appear here as you explore.</div>
+</div>
+"""
+            EMPTY_CONTEXT = """
+<div style='text-align: center; padding: 48px 24px; color: #9ca3af;'>
+    <div style='font-size: 40px; margin-bottom: 8px; opacity: 0.5;'>🎯</div>
+    <div style='font-size: 15px; font-weight: 600; color: #6b7280; margin-bottom: 6px;'>No context retrieved yet</div>
+    <div style='font-size: 13px; line-height: 1.6; max-width: 320px; margin: 0 auto;'>
+        RAG schema retrieval results will appear here.<br>
+        Shows which tables and columns were matched to your query.
+    </div>
+</div>
+"""
+
             def clear_chat():
                 self.context_manager.reset()
                 self._query_history.clear()
                 return (
                     [], "", None,
-                    """
-**No insights yet** — Run a query to get AI-generated analysis.
-
-**What you'll see:**
-- 📈 Trend detection and patterns
-- 🎯 Key findings and anomalies
-- 💼 Business recommendations
-- 📊 Statistical summaries
-                    """,
-                    "*No queries yet. Start asking questions!*",
-                    """
-**RAG context will appear here after a query.**
-
-**How it works:**
-- 🔍 Semantic search finds relevant tables/columns
-- 🎯 FAISS vector database matches your question to schema elements
-- ⚡ Only relevant schema is sent to LLM (faster, more accurate)
-                    """,
-                    "-- Run a query to see the generated SQL here\n-- The query will be optimized for your database",
+                    EMPTY_INSIGHTS,
+                    EMPTY_HISTORY,
+                    EMPTY_CONTEXT,
+                    "",
                     "",  # filter_section
                 )
 
