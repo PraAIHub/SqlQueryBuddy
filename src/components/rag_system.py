@@ -404,7 +404,7 @@ class RAGSystem:
                 "Available tables: customers, products, orders, order_items."
             )
 
-        lines = ["### 🎯 Relevant Schema Elements (retrieved by RAG):\n"]
+        lines = ["### 🎯 Candidate Schema Elements (retrieved by RAG):\n"]
 
         # Group by tables
         tables_found = set()
@@ -414,7 +414,9 @@ class RAGSystem:
             if item["type"] == "table":
                 tables_found.add(item["name"])
             elif item["type"] == "column":
-                table = item.get("table", "unknown")
+                table = item.get("table", "")
+                if not table or table == "unknown":
+                    table = "inferred"
                 if table not in columns_by_table:
                     columns_by_table[table] = []
                 columns_by_table[table].append(item)
@@ -426,21 +428,30 @@ class RAGSystem:
                 lines.append(f"- `{table}`")
             lines.append("")
 
-        # Display columns grouped by table
+        # Display columns grouped by table with confidence labels
         if columns_by_table:
             lines.append("**📊 Columns:**")
             for table, columns in sorted(columns_by_table.items()):
                 lines.append(f"\n*Table: `{table}`*")
                 for col in columns:
                     col_name = col['name']
-                    col_type = col.get('data_type', 'unknown')
+                    col_type = col.get('data_type', '')
                     similarity = col.get('similarity', 0)
 
-                    # Show column with type and similarity score
-                    lines.append(f"  - `{col_name}` ({col_type}) - relevance: {similarity:.2f}")
+                    # Confidence label based on similarity score
+                    if similarity >= 0.7:
+                        conf = "high"
+                    elif similarity >= 0.4:
+                        conf = "medium"
+                    else:
+                        conf = "low"
+
+                    type_str = f" ({col_type})" if col_type and col_type != "unknown" else ""
+                    lines.append(f"  - `{col_name}`{type_str} — confidence: {conf} ({similarity:.0%})")
             lines.append("")
 
         # Add summary
-        lines.append(f"\n📌 **Retrieved:** {len(tables_found)} tables, {sum(len(cols) for cols in columns_by_table.values())} columns")
+        total_cols = sum(len(cols) for cols in columns_by_table.values())
+        lines.append(f"\n📌 **Retrieved:** {len(tables_found)} tables, {total_cols} columns")
 
         return "\n".join(lines)

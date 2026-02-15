@@ -71,24 +71,28 @@ class DatabaseConnection:
                         )
                     result_container.update(response)
             except SQLAlchemyError as e:
-                # Log detailed error for debugging (not shown to user)
                 logger.error(f"Database error: {type(e).__name__}: {str(e)}", exc_info=True)
+                # Extract the original DB error message (strip SQLAlchemy wrapper)
+                orig = getattr(e, 'orig', e)
+                detail = str(orig).split('\n')[0][:300]  # First line, capped
                 result_container.update({
                     "success": False,
                     "error": (
                         "Query execution failed. Please check your query syntax. "
                         "Common issues: invalid column names, incorrect JOIN conditions, or syntax errors."
                     ),
+                    "detail": detail,
                 })
             except Exception as e:
-                # Log detailed error for debugging (not shown to user)
                 logger.error(f"Unexpected error: {type(e).__name__}: {str(e)}", exc_info=True)
+                detail = str(e).split('\n')[0][:300]
                 result_container.update({
                     "success": False,
                     "error": (
                         "An unexpected error occurred while executing the query. "
                         "Please try rephrasing your question or contact support if the issue persists."
                     ),
+                    "detail": detail,
                 })
 
         # Run with timeout enforcement via threading

@@ -191,36 +191,51 @@ class QueryBuddyApp:
             return None
 
         fig, ax = plt.subplots(figsize=(8, 4))
-        rows = data[:30]
-        is_truncated = len(data) > 30
-        values = []
-        for row in rows:
-            try:
-                values.append(float(row.get(numeric_col, 0)))
-            except (ValueError, TypeError):
-                values.append(0)
+
+        # Friendly column labels for titles
+        friendly_metric = numeric_col.replace('_', ' ').title()
+        friendly_date = date_col.replace('_', ' ').title() if date_col else ""
+        friendly_cat = categorical_col.replace('_', ' ').title() if categorical_col else ""
 
         if date_col:
-            labels = [str(row.get(date_col, "")) for row in rows]
-            ax.plot(range(len(labels)), values, marker="o", linewidth=2, color="#2563eb")
-            ax.set_xticks(range(len(labels)))
-            ax.set_xticklabels(labels, rotation=45, ha="right", fontsize=8)
-            title = f"{numeric_col} over {date_col}"
-            if is_truncated:
-                title += f" (showing first 30 of {len(data)} points)"
-            ax.set_title(title, fontsize=12, fontweight="bold")
-            ax.set_ylabel(numeric_col)
+            # Aggregate time-series if too many raw data points
+            agg_data = self._aggregate_time_series(data, date_col, numeric_col)
+            labels = [str(row.get(date_col, "")) for row in agg_data]
+            values = []
+            for row in agg_data:
+                try:
+                    values.append(float(row.get(numeric_col, 0)))
+                except (ValueError, TypeError):
+                    values.append(0)
+
+            ax.plot(range(len(labels)), values, marker="o", linewidth=2, color="#2563eb",
+                    markersize=4 if len(labels) > 15 else 6)
+            # Reduce x-axis tick clutter
+            max_ticks = 12
+            if len(labels) > max_ticks:
+                step = math.ceil(len(labels) / max_ticks)
+                tick_positions = list(range(0, len(labels), step))
+                ax.set_xticks(tick_positions)
+                ax.set_xticklabels([labels[i] for i in tick_positions], rotation=30, ha="right", fontsize=8)
+            else:
+                ax.set_xticks(range(len(labels)))
+                ax.set_xticklabels(labels, rotation=30, ha="right", fontsize=8)
+            ax.set_title(f"{friendly_metric} over {friendly_date}", fontsize=12, fontweight="bold")
+            ax.set_ylabel(friendly_metric)
         elif categorical_col:
-            labels = [str(row.get(categorical_col, ""))[:20] for row in rows[:20]]
-            vals = values[:20]
-            ax.barh(range(len(labels)), vals, color="#2563eb")
+            rows = data[:20]
+            values = []
+            for row in rows:
+                try:
+                    values.append(float(row.get(numeric_col, 0)))
+                except (ValueError, TypeError):
+                    values.append(0)
+            labels = [str(row.get(categorical_col, ""))[:20] for row in rows]
+            ax.barh(range(len(labels)), values, color="#2563eb")
             ax.set_yticks(range(len(labels)))
             ax.set_yticklabels(labels, fontsize=9)
-            title = f"{numeric_col} by {categorical_col}"
-            if is_truncated:
-                title += f" (first 20 of {len(data)})"
-            ax.set_title(title, fontsize=12, fontweight="bold")
-            ax.set_xlabel(numeric_col)
+            ax.set_title(f"{friendly_metric} by {friendly_cat}", fontsize=12, fontweight="bold")
+            ax.set_xlabel(friendly_metric)
             ax.invert_yaxis()
         else:
             plt.close(fig)
@@ -228,8 +243,39 @@ class QueryBuddyApp:
 
         ax.grid(axis="x", alpha=0.3)
         fig.tight_layout()
-        # Note: caller should plt.close(fig) after Gradio consumes it
         return fig
+
+    @staticmethod
+    def _aggregate_time_series(data: list, date_col: str, numeric_col: str, max_points: int = 30) -> list:
+        """Aggregate time-series data if too many raw points.
+
+        Groups by the date column value and sums the numeric column,
+        returning at most max_points rows for clean charting.
+        """
+        if len(data) <= max_points:
+            return data
+
+        # Group by date value (handles daily, monthly, etc.)
+        from collections import OrderedDict
+        groups: OrderedDict = OrderedDict()
+        for row in data:
+            key = str(row.get(date_col, ""))
+            if key not in groups:
+                groups[key] = 0.0
+            try:
+                groups[key] += float(row.get(numeric_col, 0))
+            except (ValueError, TypeError):
+                pass
+
+        # If grouping reduced points enough, return grouped data
+        if len(groups) <= max_points:
+            return [{date_col: k, numeric_col: v} for k, v in groups.items()]
+
+        # Still too many — sample evenly
+        keys = list(groups.keys())
+        step = math.ceil(len(keys) / max_points)
+        sampled = keys[::step]
+        return [{date_col: k, numeric_col: groups[k]} for k in sampled]
 
     def _generate_single_value_card(self, label: str, value: float) -> matplotlib.figure.Figure:
         """Generate a large number card for single-value results (COUNT, SUM, etc.)."""
@@ -402,14 +448,55 @@ class QueryBuddyApp:
 
             if not exec_result.get("success", False):
                 self._stats["failed_queries"] += 1
-                response = (
-                    f"**SQL Generated:**\n```sql\n{generated_sql}\n```\n\n"
-                    "**Execution Error:** The query could not be executed. "
-                    "Try rephrasing your question or check column names."
-                )
-                chat_history.append({"role": "user", "content": user_message})
-                chat_history.append({"role": "assistant", "content": response})
-                return "", chat_history, None, "", self._format_history(), rag_context, generated_sql, ""
+                error_detail = exec_result.get("detail", "")
+
+                # Attempt auto-fix: regenerate SQL using the error feedback
+                fix_result = None
+                if error_detail and hasattr(self, 'sql_generator'):
+                    fix_ctx = (
+                        f"{schema_str}\n\n"
+                        f"PREVIOUS FAILED SQL:\n{generated_sql}\n"
+                        f"ERROR: {error_detail}\n"
+                        f"Fix the SQL to avoid this error."
+                    )
+                    try:
+                        fix_result = self.sql_generator.generate(
+                            user_query=user_message,
+                            schema_context=fix_ctx,
+                            conversation_history=conversation_ctx,
+                        )
+                        if fix_result.get("success") and fix_result.get("generated_sql", "") != generated_sql:
+                            fixed_sql = fix_result["generated_sql"]
+                            retry_exec = self.query_executor.execute(fixed_sql)
+                            if retry_exec.get("success"):
+                                # Auto-fix succeeded — continue with fixed results
+                                generated_sql = fixed_sql
+                                exec_result = retry_exec
+                                logger.info("✅ Auto-fix succeeded on retry")
+                            else:
+                                fix_result = None  # Retry also failed
+                        else:
+                            fix_result = None
+                    except Exception:
+                        fix_result = None
+
+                # If auto-fix didn't work, show error with collapsible details
+                if not exec_result.get("success", False):
+                    detail_block = ""
+                    if error_detail:
+                        detail_block = (
+                            f"\n\n<details><summary>Show error details</summary>\n\n"
+                            f"```\n{error_detail}\n```\n\n</details>"
+                        )
+                    response = (
+                        f"**SQL Generated:**\n```sql\n{generated_sql}\n```\n\n"
+                        f"**Execution Error:** The query could not be executed. "
+                        f"Try rephrasing your question or check column names."
+                        f"{detail_block}"
+                    )
+                    chat_history.append({"role": "user", "content": user_message})
+                    chat_history.append({"role": "assistant", "content": response})
+                    return "", chat_history, None, "", self._format_history(), rag_context, generated_sql, ""
 
             # Track successful query
             self._stats["successful_queries"] += 1
@@ -825,7 +912,7 @@ class QueryBuddyApp:
                     overflow-x: hidden;
                 }
 
-                /* Secondary button styling - ghost/outline */
+                /* Secondary button styling - ghost/outline (Export, Clear) */
                 button.secondary {
                     background: transparent !important;
                     border: 1px solid #e5e7eb !important;
@@ -838,6 +925,22 @@ class QueryBuddyApp:
                     background: #f9fafb !important;
                     border-color: #9ca3af !important;
                     color: #6b7280 !important;
+                }
+
+                /* Quick Start chip buttons - distinct from ghost secondary */
+                .quick-start-btn button {
+                    background: #f5f3ff !important;
+                    border: 1px solid #c4b5fd !important;
+                    color: #6d28d9 !important;
+                    font-size: 12px !important;
+                    font-weight: 500 !important;
+                    min-height: 30px !important;
+                    padding: 4px 12px !important;
+                    border-radius: 16px !important;
+                }
+                .quick-start-btn button:hover {
+                    background: #ede9fe !important;
+                    border-color: #8b5cf6 !important;
                 }
             </style>
             """)
@@ -977,15 +1080,15 @@ class QueryBuddyApp:
                             # Example query chips (at bottom)
                             gr.Markdown("**💡 Quick Start:**")
                             with gr.Row():
-                                ex1 = gr.Button("Top customers", size="sm")
-                                ex2 = gr.Button("Revenue by category", size="sm")
-                                ex3 = gr.Button("Sales per region", size="sm")
-                                ex4 = gr.Button("Monthly trend", size="sm")
+                                ex1 = gr.Button("Top customers", size="sm", elem_classes="quick-start-btn")
+                                ex2 = gr.Button("Revenue by category", size="sm", elem_classes="quick-start-btn")
+                                ex3 = gr.Button("Sales per region", size="sm", elem_classes="quick-start-btn")
+                                ex4 = gr.Button("Monthly trend", size="sm", elem_classes="quick-start-btn")
                             with gr.Row():
-                                ex5 = gr.Button("Returning customers", size="sm")
-                                ex6 = gr.Button("January products", size="sm")
-                                ex7 = gr.Button("Large orders", size="sm")
-                                ex8 = gr.Button("Inactive customers", size="sm")
+                                ex5 = gr.Button("Returning customers", size="sm", elem_classes="quick-start-btn")
+                                ex6 = gr.Button("January products", size="sm", elem_classes="quick-start-btn")
+                                ex7 = gr.Button("Large orders", size="sm", elem_classes="quick-start-btn")
+                                ex8 = gr.Button("Inactive customers", size="sm", elem_classes="quick-start-btn")
 
                         # RIGHT PANE: Tabbed results
                         with gr.Column(scale=5):
@@ -1107,6 +1210,19 @@ What you'll see:
             # Hidden textbox to trigger scroll via JavaScript
             scroll_trigger = gr.Textbox(visible=False, value="0")
 
+            # Loading card HTML for right panel during processing
+            LOADING_CARD_HTML = """
+<div style='display: flex; flex-direction: column; align-items: center; justify-content: center;
+            padding: 40px 20px; color: #6b7280;'>
+    <div style='font-size: 32px; margin-bottom: 12px; animation: pulse 1.5s ease-in-out infinite;'>⚙️</div>
+    <div style='font-weight: 600; font-size: 15px; color: #374151; margin-bottom: 8px;'>Processing your query...</div>
+    <div style='font-size: 12px; color: #9ca3af; text-align: center; line-height: 1.6;'>
+        Generating SQL &rarr; Executing &rarr; Rendering chart &rarr; Generating insights
+    </div>
+</div>
+<style>@keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.4; } }</style>
+"""
+
             # Wrapper function to handle loading states
             def process_with_loading(user_message, chat_history):
                 """Process query and manage button states during execution"""
@@ -1180,10 +1296,16 @@ What you'll see:
             # Disable all interactive buttons (submit + export + clear + 8 examples = 11)
             all_buttons = [submit_btn, export_btn, clear, ex1, ex2, ex3, ex4, ex5, ex6, ex7, ex8]
 
+            def show_loading():
+                """Show loading card in right panel immediately."""
+                return LOADING_CARD_HTML, LOADING_CARD_HTML
+
             msg.submit(
                 lambda: [gr.update(interactive=False)] * 11,
                 outputs=all_buttons,
                 queue=False
+            ).then(
+                show_loading, outputs=[insights_output, filter_section]
             ).then(
                 process_with_loading, [msg, chatbot], query_outputs
             )
@@ -1192,6 +1314,8 @@ What you'll see:
                 lambda: [gr.update(interactive=False)] * 11,
                 outputs=all_buttons,
                 queue=False
+            ).then(
+                show_loading, outputs=[insights_output, filter_section]
             ).then(
                 process_with_loading, [msg, chatbot], query_outputs
             )
@@ -1298,7 +1422,9 @@ What you'll see:
                     outputs=[msg] + all_buttons,
                     queue=False  # Instant disable
                 ).then(
-                    # Second: Process query and re-enable all buttons (scroll_trigger updated here)
+                    show_loading, outputs=[insights_output, filter_section]
+                ).then(
+                    # Process query and re-enable all buttons (scroll_trigger updated here)
                     fn=lambda ch, q=query: handle_example_click(q, ch),
                     inputs=[chatbot],
                     outputs=example_outputs,
