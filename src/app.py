@@ -97,6 +97,15 @@ class QueryBuddyApp:
         # Query history: list of {"query": ..., "sql": ..., "rows": int}
         self._query_history = []
 
+        # Stats tracking for dashboard
+        self._stats = {
+            "total_queries": 0,
+            "successful_queries": 0,
+            "failed_queries": 0,
+            "total_response_time_ms": 0,
+            "query_times": [],  # Last 50 query times
+        }
+
     # Column name hints that indicate monetary values
     CURRENCY_HINTS = {
         "price", "revenue", "amount", "spent", "subtotal",
@@ -289,11 +298,11 @@ class QueryBuddyApp:
 
     def process_query(
         self, user_message: str, chat_history: list
-    ) -> Tuple[str, list, Optional[matplotlib.figure.Figure], str, str, str, str]:
-        """Process user query and return response, chart, insights, history, RAG context, and SQL"""
+    ) -> Tuple[str, list, Optional[matplotlib.figure.Figure], str, str, str, str, str]:
+        """Process user query and return response, chart, insights, history, RAG context, SQL, and filters"""
         # Validate empty input
         if not user_message or not user_message.strip():
-            return "", chat_history, None, "", self._format_history(), "", ""
+            return "", chat_history, None, "", self._format_history(), "", "", ""
 
         user_message = user_message.strip()
 
@@ -310,7 +319,7 @@ class QueryBuddyApp:
             )
             chat_history.append({"role": "user", "content": user_message[:100] + "..."})
             chat_history.append({"role": "assistant", "content": error_response})
-            return "", chat_history, None, "", self._format_history(), "", ""
+            return "", chat_history, None, "", self._format_history(), "", "", ""
 
         try:
             # Parse user input with NLP
@@ -373,7 +382,7 @@ class QueryBuddyApp:
                 )
                 chat_history.append({"role": "user", "content": user_message})
                 chat_history.append({"role": "assistant", "content": response})
-                return "", chat_history, None, "", self._format_history(), "", ""
+                return "", chat_history, None, "", self._format_history(), "", "", ""
 
             generated_sql = result.get("generated_sql", "")
 
@@ -382,7 +391,15 @@ class QueryBuddyApp:
             exec_result = self.query_executor.execute(generated_sql)
             exec_ms = (time.time() - t0) * 1000
 
+            # Track stats
+            self._stats["total_queries"] += 1
+            self._stats["total_response_time_ms"] += exec_ms
+            self._stats["query_times"].append(exec_ms)
+            if len(self._stats["query_times"]) > 50:
+                self._stats["query_times"] = self._stats["query_times"][-50:]
+
             if not exec_result.get("success", False):
+                self._stats["failed_queries"] += 1
                 response = (
                     f"**SQL Generated:**\n```sql\n{generated_sql}\n```\n\n"
                     "**Execution Error:** The query could not be executed. "
@@ -390,7 +407,10 @@ class QueryBuddyApp:
                 )
                 chat_history.append({"role": "user", "content": user_message})
                 chat_history.append({"role": "assistant", "content": response})
-                return "", chat_history, None, "", self._format_history(), rag_context, generated_sql
+                return "", chat_history, None, "", self._format_history(), rag_context, generated_sql, ""
+
+            # Track successful query
+            self._stats["successful_queries"] += 1
 
             # Store results for export and history
             data = exec_result.get("data", [])
@@ -501,9 +521,18 @@ class QueryBuddyApp:
                     f"{formatted_plan}\n"
                 )
 
+            # Generate quick filter options
+            filter_opts = self._detect_filter_options(data)
+            filter_md = ""
+            if filter_opts:
+                filter_md = "**🎛️ Quick Filters:** "
+                for col_name, values in filter_opts.items():
+                    filter_md += f"\n\n*{col_name}:* "
+                    filter_md += " • ".join([f"`{v}`" for v in values[:5]])
+
             chat_history.append({"role": "user", "content": user_message})
             chat_history.append({"role": "assistant", "content": response_text})
-            return "", chat_history, chart, insights_md, self._format_history(), rag_display, generated_sql
+            return "", chat_history, chart, insights_md, self._format_history(), rag_display, generated_sql, filter_md
 
         except Exception as e:
             logger.exception("Unexpected error in process_query")
@@ -538,7 +567,7 @@ class QueryBuddyApp:
 
             chat_history.append({"role": "user", "content": user_message})
             chat_history.append({"role": "assistant", "content": error_response})
-            return "", chat_history, None, "", self._format_history(), "", ""
+            return "", chat_history, None, "", self._format_history(), "", "", ""
 
     @staticmethod
     def _format_schema(schema: dict) -> str:
@@ -637,6 +666,129 @@ class QueryBuddyApp:
             f"| RAG System | Active |\n"
         )
 
+    def _build_dashboard_overview(self) -> str:
+        """Build dashboard overview with stats and recent queries"""
+        total = self._stats["total_queries"]
+        success = self._stats["successful_queries"]
+        failed = self._stats["failed_queries"]
+
+        # Calculate metrics
+        success_rate = (success / total * 100) if total > 0 else 0
+        avg_time = (
+            self._stats["total_response_time_ms"] / total
+            if total > 0
+            else 0
+        )
+
+        # Stats cards
+        lines = [
+            "## 📊 Analytics Dashboard\n",
+            "### Today's Performance\n",
+            '<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; margin: 20px 0;">',
+        ]
+
+        # Card 1: Total Queries
+        lines.append(f'''
+<div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            padding: 20px; border-radius: 12px; color: white; box-shadow: 0 4px 12px rgba(0,0,0,0.15);">
+    <div style="font-size: 14px; opacity: 0.9; margin-bottom: 8px;">🔍 Total Queries</div>
+    <div style="font-size: 36px; font-weight: bold;">{total}</div>
+    <div style="font-size: 12px; opacity: 0.8; margin-top: 4px;">This session</div>
+</div>
+''')
+
+        # Card 2: Success Rate
+        success_color = "#10b981" if success_rate >= 90 else "#f59e0b" if success_rate >= 70 else "#ef4444"
+        lines.append(f'''
+<div style="background: linear-gradient(135deg, {success_color} 0%, {success_color}dd 100%);
+            padding: 20px; border-radius: 12px; color: white; box-shadow: 0 4px 12px rgba(0,0,0,0.15);">
+    <div style="font-size: 14px; opacity: 0.9; margin-bottom: 8px;">✅ Success Rate</div>
+    <div style="font-size: 36px; font-weight: bold;">{success_rate:.0f}%</div>
+    <div style="font-size: 12px; opacity: 0.8; margin-top: 4px;">{success} of {total} queries</div>
+</div>
+''')
+
+        # Card 3: Avg Response Time
+        time_color = "#10b981" if avg_time < 200 else "#f59e0b" if avg_time < 500 else "#ef4444"
+        lines.append(f'''
+<div style="background: linear-gradient(135deg, {time_color} 0%, {time_color}dd 100%);
+            padding: 20px; border-radius: 12px; color: white; box-shadow: 0 4px 12px rgba(0,0,0,0.15);">
+    <div style="font-size: 14px; opacity: 0.9; margin-bottom: 8px;">⚡ Avg Response</div>
+    <div style="font-size: 36px; font-weight: bold;">{avg_time:.0f}ms</div>
+    <div style="font-size: 12px; opacity: 0.8; margin-top: 4px;">Query execution time</div>
+</div>
+''')
+
+        # Card 4: Charts Generated
+        chart_count = sum(1 for entry in self._query_history if entry.get("rows", 0) > 0)
+        lines.append(f'''
+<div style="background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%);
+            padding: 20px; border-radius: 12px; color: white; box-shadow: 0 4px 12px rgba(0,0,0,0.15);">
+    <div style="font-size: 14px; opacity: 0.9; margin-bottom: 8px;">📈 Results with Data</div>
+    <div style="font-size: 36px; font-weight: bold;">{chart_count}</div>
+    <div style="font-size: 12px; opacity: 0.8; margin-top: 4px;">Queries with results</div>
+</div>
+''')
+
+        lines.append('</div>\n')
+
+        # Recent queries section
+        lines.append("\n### 🔥 Recent Queries\n")
+
+        if not self._query_history:
+            lines.append("*No queries yet. Start asking questions in the Chat tab!*\n")
+        else:
+            lines.append("| # | Query | Rows | SQL |\n")
+            lines.append("|---|-------|------|-----|\n")
+
+            recent = list(reversed(self._query_history[-5:]))  # Last 5, newest first
+            for i, entry in enumerate(recent, 1):
+                query = entry['query'][:50] + "..." if len(entry['query']) > 50 else entry['query']
+                sql = entry['sql'][:40] + "..." if len(entry['sql']) > 40 else entry['sql']
+                rows = entry['rows']
+                lines.append(f"| {i} | {query} | {rows} | `{sql}` |\n")
+
+        # Quick tips
+        lines.append("\n### 💡 Quick Tips\n")
+        if total == 0:
+            lines.append("- Click the **💬 Chat** tab to start querying your database\n")
+            lines.append("- Try example queries like 'Top 5 customers by spending'\n")
+            lines.append("- Get AI-powered insights and visualizations automatically\n")
+        elif success_rate < 70:
+            lines.append("- Try rephrasing queries if they fail\n")
+            lines.append("- Use example queries as templates\n")
+            lines.append("- Check the RAG Context tab to see what schema was retrieved\n")
+        else:
+            lines.append("- Great success rate! Keep exploring your data\n")
+            lines.append("- Try follow-up queries to drill down into results\n")
+            lines.append("- Export results as CSV for further analysis\n")
+
+        return "".join(lines)
+
+    def _detect_filter_options(self, data: list) -> dict:
+        """Detect columns that can be used for filtering (categorical with 2-10 unique values)"""
+        if not data or len(data) < 2:
+            return {}
+
+        filter_options = {}
+
+        # Analyze each column
+        for col_name in data[0].keys():
+            values = [row.get(col_name) for row in data if row.get(col_name) is not None]
+
+            # Skip numeric columns with high cardinality
+            if all(isinstance(v, (int, float)) for v in values):
+                continue
+
+            # Get unique values
+            unique_values = list(set(str(v) for v in values))
+
+            # Only create filters for columns with 2-10 unique values
+            if 2 <= len(unique_values) <= 10:
+                filter_options[col_name] = sorted(unique_values)[:10]  # Limit to 10 options
+
+        return filter_options
+
     def create_interface(self) -> gr.Blocks:
         """Create Gradio interface"""
         with gr.Blocks(title="SQL Query Buddy", theme=gr.themes.Soft()) as demo:
@@ -718,6 +870,14 @@ class QueryBuddyApp:
             gr.HTML(status_html)
 
             with gr.Tabs():
+                # Tab 0: Dashboard Overview
+                with gr.Tab("📊 Dashboard"):
+                    dashboard_view = gr.Markdown(
+                        value=self._build_dashboard_overview(),
+                        label="Dashboard",
+                    )
+                    refresh_dashboard = gr.Button("🔄 Refresh Stats", variant="secondary")
+
                 # Tab 1: Chat Interface with 2-pane layout
                 with gr.Tab("💬 Chat"):
                     with gr.Row():
@@ -765,6 +925,13 @@ class QueryBuddyApp:
                             with gr.Tabs():
                                 with gr.Tab("📊 Results"):
                                     gr.Markdown("### Query Results")
+
+                                    # Quick filters
+                                    filter_section = gr.Markdown(
+                                        value="",
+                                        visible=False,
+                                    )
+
                                     chart_output = gr.Plot(
                                         label="Visualization",
                                         show_label=False,
@@ -845,7 +1012,7 @@ class QueryBuddyApp:
                 # Call the actual process_query function
                 results = self.process_query(user_message, chat_history)
 
-                # Return results + re-enable all interactive components
+                # Return results + re-enable all interactive components + dashboard update
                 return list(results) + [
                     gr.update(interactive=True),   # submit_btn
                     gr.update(interactive=True),   # ex1
@@ -856,13 +1023,14 @@ class QueryBuddyApp:
                     gr.update(interactive=True),   # ex6
                     gr.update(interactive=True),   # ex7
                     gr.update(interactive=True),   # ex8
+                    self._build_dashboard_overview(),  # dashboard_view
                 ]
 
-            # All outputs including button states
+            # All outputs including button states, dashboard, and filters
             query_outputs = [
                 msg, chatbot, chart_output, insights_output,
-                history_output, rag_output, sql_output,
-                submit_btn, ex1, ex2, ex3, ex4, ex5, ex6, ex7, ex8
+                history_output, rag_output, sql_output, filter_section,
+                submit_btn, ex1, ex2, ex3, ex4, ex5, ex6, ex7, ex8, dashboard_view
             ]
 
             # Event handlers with loading state management
@@ -906,9 +1074,16 @@ class QueryBuddyApp:
 - ⚡ Only relevant schema is sent to LLM (faster, more accurate)
                     """,
                     "-- Run a query to see the generated SQL here\n-- The query will be optimized for your database",
+                    "",  # filter_section
                 )
 
-            clear.click(clear_chat, outputs=[chatbot, msg, chart_output, insights_output, history_output, rag_output, sql_output])
+            clear.click(clear_chat, outputs=[chatbot, msg, chart_output, insights_output, history_output, rag_output, sql_output, filter_section])
+
+            # Dashboard refresh button
+            refresh_dashboard.click(
+                lambda: self._build_dashboard_overview(),
+                outputs=[dashboard_view]
+            )
 
             def handle_export():
                 path = self.export_csv()
@@ -932,9 +1107,10 @@ class QueryBuddyApp:
                 # Process the query
                 results = self.process_query(query_text, chat_history)
 
-                # Return results + re-enable all buttons + update textbox
+                # Return results + re-enable all buttons + update textbox + dashboard
+                # Results now include: msg, chatbot, chart, insights, history, rag, sql, filter_section
                 return [query_text] + list(results) + [
-                    gr.update(interactive=True),   # msg textbox
+                    gr.update(interactive=True),   # msg textbox (already in results[0])
                     gr.update(interactive=True),   # submit_btn
                     gr.update(interactive=True),   # ex1
                     gr.update(interactive=True),   # ex2
@@ -944,6 +1120,7 @@ class QueryBuddyApp:
                     gr.update(interactive=True),   # ex6
                     gr.update(interactive=True),   # ex7
                     gr.update(interactive=True),   # ex8
+                    self._build_dashboard_overview(),  # dashboard_view
                 ]
 
             example_queries = {
@@ -957,7 +1134,7 @@ class QueryBuddyApp:
                 ex8: "List customers who haven't ordered anything in the last 3 months",
             }
 
-            # Outputs: textbox first, then all query outputs, then button states
+            # Outputs: textbox first, then all query outputs (which includes dashboard)
             example_outputs = [msg] + query_outputs
 
             for btn, query in example_queries.items():
