@@ -7,6 +7,7 @@ import math
 import os
 import tempfile
 import time
+import uuid
 from typing import Tuple, Optional
 
 import matplotlib
@@ -53,7 +54,24 @@ class QueryBuddyApp:
             and settings.openai_api_key.strip().lower() not in _placeholder_keys
             and settings.openai_api_key.startswith("sk-")
         )
-        logger.info(f"OPENAI_MODEL: {settings.openai_model} | LLM enabled: {self.using_real_llm}")
+
+        # Track fallback reason for UI display
+        self._fallback_reason = "" if self.using_real_llm else "no API key"
+
+        # Structured startup logging (task 1)
+        _mode = "openai" if self.using_real_llm else "mock"
+        _key_present = bool(
+            settings.openai_api_key
+            and settings.openai_api_key.strip().lower() not in _placeholder_keys
+        )
+        logger.info(
+            "Startup config: mode=%s model=%s insights=%s timeout=%s key_present=%s",
+            _mode,
+            settings.openai_model,
+            self.using_real_llm,
+            settings.query_timeout_seconds,
+            _key_present,
+        )
 
         # Initialize SQL generator (with mock fallback for API errors)
         self.mock_generator = SQLGeneratorMock()
@@ -434,15 +452,38 @@ class QueryBuddyApp:
                 conversation_history=conversation_ctx,
             )
 
-            # Fallback to mock generator on API errors (quota, rate limit)
+            # Fallback to mock generator on API errors (quota, rate limit, auth)
+            _error_category = result.get("error_category", "")
             if (
                 not result.get("success", False)
                 and self.using_real_llm
-                and any(
-                    hint in result.get("error", "").lower()
-                    for hint in ["429", "quota", "rate limit", "rate_limit", "401", "403", "authentication", "unauthorized", "invalid api key", "invalid_api_key"]
+                and (
+                    _error_category in (
+                        "quota_exceeded", "rate_limited", "invalid_api_key",
+                        "model_not_found", "timeout", "network_error", "unknown",
+                    )
+                    or any(
+                        hint in result.get("error", "").lower()
+                        for hint in ["429", "quota", "rate limit", "rate_limit", "401", "403", "authentication", "unauthorized", "invalid api key", "invalid_api_key"]
+                    )
                 )
             ):
+                # Update fallback reason for UI status display
+                _category_to_reason = {
+                    "quota_exceeded": "quota exceeded",
+                    "rate_limited": "rate limited",
+                    "invalid_api_key": "invalid API key",
+                    "model_not_found": "model not found",
+                    "timeout": "timeout",
+                    "network_error": "network error",
+                }
+                self._fallback_reason = _category_to_reason.get(
+                    _error_category, _error_category or "API error"
+                )
+                logger.warning(
+                    "SQL generation fallback to mock: reason=%s",
+                    self._fallback_reason,
+                )
                 result = self.mock_generator.generate(
                     user_query=user_message,
                     schema_context=schema_str,
@@ -616,15 +657,26 @@ class QueryBuddyApp:
                 insights_md = self.insight_generator.generate_insights(data, user_message)
                 # If insights indicate API failure, try local fallback
                 if "AI Insights unavailable" in insights_md and self.using_real_llm:
-                    logger.warning("⚠️ LLM insights failed (likely rate limit or quota), falling back to local generator")
+                    req_id = uuid.uuid4().hex[:8]
+                    logger.warning(
+                        "LLM insights failed req_id=%s -> falling back to local generator",
+                        req_id,
+                    )
+                    self._fallback_reason = "LLM error"
                     local_gen = LocalInsightGenerator()
                     insights_md = local_gen.generate_insights(data, user_message)
-                    logger.info("✅ Local insights generated successfully as fallback")
+                    logger.info("Local insights generated successfully as fallback req_id=%s", req_id)
             except Exception as e:
-                logger.warning(f"⚠️ Insight generation failed: {e}, using local fallback")
+                req_id = uuid.uuid4().hex[:8]
+                logger.warning(
+                    "Insight generation failed req_id=%s error=%s, using local fallback",
+                    req_id,
+                    str(e)[:200],
+                )
+                self._fallback_reason = "insight error"
                 local_gen = LocalInsightGenerator()
                 insights_md = local_gen.generate_insights(data, user_message)
-                logger.info("✅ Local insights generated successfully as fallback")
+                logger.info("Local insights generated successfully as fallback req_id=%s", req_id)
 
             # Update context and structured query plan
             response_text = "\n".join(response_lines)
@@ -791,11 +843,14 @@ class QueryBuddyApp:
 
     def _build_status_text(self) -> str:
         """Build system status text"""
-        llm_status = (
-            f"Connected ({settings.openai_model})"
-            if self.using_real_llm
-            else "Mock (demo mode - set OPENAI_API_KEY for full LLM)"
-        )
+        if self.using_real_llm:
+            if self._fallback_reason:
+                llm_status = f"Fallback: {self._fallback_reason}"
+            else:
+                llm_status = f"Connected ({settings.openai_model})"
+        else:
+            reason = self._fallback_reason or "no API key"
+            llm_status = f"Mock (Fallback: {reason})"
         vector_db = "FAISS" if FAISS_AVAILABLE else "In-Memory"
         return (
             f"| Component | Status |\n"
@@ -1084,13 +1139,14 @@ class QueryBuddyApp:
                 </div>
                 """
             else:
+                _reason = self._fallback_reason or "no API key"
                 status_html = f"""
                 <div style='display: flex; align-items: center; gap: 6px; font-size: 10px; color: #9ca3af; letter-spacing: 0.3px; padding: 4px 0;'>
                     <span style='background: #fef3c7; padding: 2px 7px; border-radius: 4px; border: 1px solid #fde68a; white-space: nowrap;'>
-                        🎮 Demo
+                        Fallback: {_reason}
                     </span>
                     <span style='background: #f3f4f6; padding: 2px 7px; border-radius: 4px; border: 1px solid #e5e7eb; white-space: nowrap;'>
-                        🗄️ {settings.database_type.upper()}
+                        {settings.database_type.upper()}
                     </span>
                     <span style='opacity: 0.6; font-style: italic; font-size: 9px; white-space: nowrap;'>
                         (Set OPENAI_API_KEY for full LLM)
