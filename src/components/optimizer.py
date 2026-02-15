@@ -257,7 +257,6 @@ class QueryOptimizer:
 
         # "Top N" without explicit N → assumed default
         if "top" in query_lower and "LIMIT" in sql_upper:
-            import re
             limit_match = re.search(r"LIMIT\s+(\d+)", sql_upper)
             if limit_match:
                 n = limit_match.group(1)

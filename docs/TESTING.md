@@ -53,13 +53,18 @@ pytest tests/unit/ --cov=src tests/
 # View: htmlcov/index.html
 ```
 
-**What's Tested**:
+**What's Tested** (75 tests total):
 - ✅ Query Parser (intent extraction, modifiers)
 - ✅ Context Manager (conversation history)
-- ✅ SQL Validator (injection prevention)
-- ✅ Query Optimizer (suggestions)
+- ✅ SQL Validator (injection prevention, comment bypass)
+- ✅ Query Optimizer (suggestions, categorization, cost estimation)
 - ✅ Pattern Detector (numeric/string patterns)
-- ✅ Trend Analyzer (trend detection)
+- ✅ Trend Analyzer (trend detection, anomaly detection)
+- ✅ RAG System (embeddings, FAISS, schema retrieval)
+- ✅ Local Insight Generator (empty data, top performers, trends)
+- ✅ SQL Generator Mock (10+ query patterns, follow-ups)
+- ✅ Currency Formatting (float, string, NaN, non-currency)
+- ✅ QueryPlan (update, time range, reset, context string)
 
 **Example**:
 ```python

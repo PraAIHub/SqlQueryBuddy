@@ -1,4 +1,5 @@
 """Natural Language Processing layer for query understanding"""
+import re
 from typing import Optional, List, Dict, Any
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -193,7 +194,6 @@ class QueryPlan:
             self.time_range = "all-time"
 
         # Detect active filters from WHERE clause
-        import re
         where_match = re.search(
             r"WHERE\s+(.+?)(?:GROUP|ORDER|LIMIT|HAVING|$)",
             generated_sql,

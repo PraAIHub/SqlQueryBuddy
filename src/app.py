@@ -96,6 +96,9 @@ class QueryBuddyApp:
         # Initialize optimizer
         self.optimizer = QueryOptimizer()
 
+        # Cache schema to avoid re-fetching on every query
+        self._cached_schema = self.db_connection.get_schema()
+
         # Store last results for export
         self._last_results = []
         self._last_sql = ""
@@ -400,7 +403,7 @@ class QueryBuddyApp:
             entities = parsed_query["entities"]
 
             # Get schema context via RAG (semantic retrieval of relevant tables/columns)
-            schema = self.db_connection.get_schema()
+            schema = self._cached_schema
             rag_context = self.rag_system.get_schema_context_string(
                 user_message,
                 similarity_threshold=settings.similarity_threshold,
@@ -637,7 +640,9 @@ class QueryBuddyApp:
                 user_query=user_message,
             )
 
-            # Generate chart from results (close previous figures to avoid leaks)
+            # Generate chart from results
+            # Close stale figures first to prevent memory leaks
+            plt.close('all')
             chart = None
             if data:
                 chart = self._generate_chart(data)

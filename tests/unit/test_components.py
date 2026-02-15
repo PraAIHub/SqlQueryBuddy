@@ -267,7 +267,7 @@ class TestRAGSystem:
 
     def test_rag_schema_context_string(self, rag_with_schema):
         result = rag_with_schema.get_schema_context_string("product prices")
-        assert "Relevant Schema Elements" in result  # Updated to match emoji format
+        assert "Candidate Schema Elements" in result
         assert "Table:" in result or "Column:" in result or "Tables:" in result or "Columns:" in result
 
 

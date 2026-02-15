@@ -10,9 +10,23 @@ pinned: false
 
 # SQL Query Buddy 🤖
 
-An intelligent conversational AI agent that transforms natural language questions into optimized SQL queries, executes them against your database, and provides AI-driven insights on the results.
+**Conversational AI for Smart Data Insights** — Built for the [Codecademy GenAI Bootcamp Contest](https://www.codecademy.com) #CodecademyGenAIBootcamp
 
-**Quick Start:**
+An intelligent conversational AI agent that transforms natural language questions into optimized SQL queries, executes them against your database, and provides **AI-driven insights** on the results — not just raw data, but trends, anomalies, and actionable recommendations.
+
+## What Makes This Special
+
+| Feature | What It Does |
+|---------|-------------|
+| **RAG-Powered SQL** | FAISS vector search finds relevant schema before generating SQL — no hallucinated tables |
+| **AI Insights** | Every query gets trend analysis, anomaly detection, and business recommendations |
+| **Auto-Fix Retry** | If SQL fails, the system automatically regenerates using the error feedback |
+| **Context Memory** | Multi-turn conversations with structured QueryPlan tracking |
+| **Works Offline** | LocalInsightGenerator provides full insights even without an API key |
+| **Smart Charts** | Auto-detects time series, categorical data, and single-value metrics |
+
+## Quick Start
+
 ```bash
 # Clone and setup
 git clone <repo-url>
@@ -33,118 +47,161 @@ python -m src.main
 
 **Open your browser to:** `http://localhost:7860`
 
-## Features ✨
+## Core Features
 
-- 🗣️ **Conversational Querying** - Chat naturally with your database
-- 🧠 **RAG-Powered SQL Generation** - Semantic search over schema
-- ⚡ **Query Optimization** - Automatic analysis and suggestions
-- 📊 **AI-Driven Insights** - Pattern analysis and natural language summaries
-- 🔍 **Explainable SQL** - Transparent generation with step-by-step reasoning
-- 💾 **Context Retention** - Maintains conversation history
-- 🎨 **Clean Interface** - Intuitive Gradio web interface
+- **Conversational Querying** — Chat naturally: "Show top customers", then "Filter to California only"
+- **RAG-Powered SQL Generation** — LangChain + FAISS semantic search over schema embeddings
+- **Query Optimization** — 8 optimization rules with categorized suggestions (performance, assumptions, next steps)
+- **AI-Driven Insights** — LLM-generated analysis with local fallback (trends, anomalies, key metrics)
+- **Explainable SQL** — Every query includes a natural language explanation
+- **Context Retention** — QueryPlan tracks tables, filters, time ranges across turns
+- **Interactive Dashboard** — Analytics cards, query history, performance metrics
+- **Auto-Fix Retry** — Automatically regenerates SQL using error feedback on failures
 
 ## Database Schema (Retail Commerce)
 
-| Table | Description |
-|-------|-------------|
-| **customers** | Customer info (name, email, region, signup_date) |
-| **products** | Product catalog (name, category, price) |
-| **orders** | Purchase records (customer_id, order_date, total_amount) |
-| **order_items** | Line items linking orders to products (quantity, subtotal) |
+| Table | Records | Description |
+|-------|---------|-------------|
+| **customers** | 150 | Customer info (name, email, region, signup_date) |
+| **products** | 25 | Product catalog (name, category, price) |
+| **orders** | 2,500 | Purchase records (customer_id, order_date, total_amount) |
+| **order_items** | ~6,500 | Line items linking orders to products (quantity, subtotal) |
 
 ## Demo Queries
 
 Try these in the chat:
-- "Show me the top 5 customers by total purchase amount"
-- "Which product category made the most revenue this quarter?"
-- "List customers who haven't ordered anything in the last 3 months"
-- "Show total sales per region for 2024"
-- "Find the average order value for returning customers"
-- "From the previous result, filter customers from New York only"
-
-See all 10+ examples in [demo_queries.md](demo_queries.md)
+1. "Show me the top 5 customers by total purchase amount"
+2. "Which product category made the most revenue?"
+3. "List customers who haven't ordered anything in the last 3 months"
+4. "Show total sales per region for 2024"
+5. "Find the average order value for returning customers"
+6. "How many unique products were sold in January?"
+7. "Show the trend of monthly revenue over time"
+8. "How many orders contained more than 3 items?"
+9. "From the previous result, filter customers from New York only"
+10. "Which salesperson generated the highest sales last month?"
 
 ## Tech Stack
 
-| Component | Technology |
-|-----------|-----------|
-| Frontend | Gradio 4.0 |
-| AI Engine | LangChain + GPT-4 |
-| Vector Search | FAISS |
-| Backend | Python + Gradio |
-| Database | SQLite / PostgreSQL / MySQL |
+| Layer | Technology |
+|-------|-----------|
+| **Frontend** | Gradio (modern 2-pane chat UI with tabs) |
+| **AI Engine** | LangChain + ChatOpenAI (GPT-4o-mini default) |
+| **Vector Search** | FAISS (Facebook AI Similarity Search) |
+| **Embeddings** | TF-IDF with synonym expansion + stemming |
+| **Backend** | Python 3.9+ |
+| **Database** | SQLite (also supports PostgreSQL, MySQL) |
+| **Charts** | Matplotlib (auto-detection: line, bar, value cards) |
+| **Containerization** | Docker + docker-compose |
+
+## Architecture
+
+```
+User Question
+    ↓
+[NLP Parser] → Extract intent, entities, modifiers
+    ↓
+[RAG System] → FAISS vector search for relevant schema
+    ↓
+[SQL Generator] → LangChain + GPT builds optimized SQL
+    ↓
+[Validator] → Safety checks (injection, dangerous ops)
+    ↓
+[Optimizer] → Performance analysis + suggestions
+    ↓
+[Executor] → Read-only execution with timeout
+    ↓
+[Insight Generator] → AI analysis (LLM or local fallback)
+    ↓
+[Response] → SQL + Results + Chart + Insights + Explanation
+```
+
+See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for detailed Mermaid diagrams.
 
 ## Project Structure
 
 ```
 SqlQueryBuddy/
-├── docs/                    # Documentation
-│   ├── README.md           # Detailed guide
-│   └── specification.md     # Technical specs
 ├── src/
-│   ├── components/         # Core modules
-│   │   ├── nlp_processor.py      # NLP layer
-│   │   ├── rag_system.py         # RAG pipeline
-│   │   ├── sql_generator.py      # SQL generation
-│   │   ├── executor.py           # Query execution
-│   │   ├── insights.py           # Insight generation
-│   │   └── optimizer.py          # Query optimization
-│   ├── app.py             # Gradio interface
-│   ├── config.py          # Configuration
-│   └── main.py            # Entry point
-├── tests/                 # Test suite
-├── requirements.txt       # Dependencies
-├── docker-compose.yml     # Docker setup
-└── run.sh                # Start script
-```
-
-## Configuration
-
-Edit `.env` file (copy from `.env.example`):
-
-```env
-OPENAI_API_KEY=your_key_here
-OPENAI_MODEL=gpt-4
-DATABASE_URL=sqlite:///retail.db
+│   ├── components/
+│   │   ├── nlp_processor.py      # NLP: intent extraction, context management
+│   │   ├── rag_system.py         # RAG: FAISS, embeddings, schema retrieval
+│   │   ├── sql_generator.py      # SQL: LangChain generation + mock fallback
+│   │   ├── executor.py           # DB: connection, execution, safety
+│   │   ├── insights.py           # AI: LLM insights + local fallback
+│   │   ├── optimizer.py          # Perf: 8 optimization rules
+│   │   └── sanitizer.py          # Security: shared prompt sanitization
+│   ├── app.py                    # Gradio interface (1600 lines)
+│   ├── config.py                 # Pydantic settings from .env
+│   └── main.py                   # Entry point
+├── tests/
+│   ├── unit/test_components.py   # 37+ unit tests
+│   └── integration/test_end_to_end.py  # 12+ integration tests
+├── docs/                         # 7 documentation files
+├── reviews/                      # 10-agent critique reports
+├── requirements.txt
+├── Dockerfile
+├── docker-compose.yml
+└── run.sh
 ```
 
 ## Testing
 
 ```bash
-# Run all tests
+# Run all tests (46+ tests, no API key needed)
 pytest
 
 # Run with coverage
 pytest --cov=src tests/
 
-# Run specific test
+# Run specific suite
 pytest tests/unit/test_components.py -v
+pytest tests/integration/test_end_to_end.py -v
 ```
 
-## Environment Variables
+## Configuration
 
-See `.env.example` for all available options. Key ones:
-- `OPENAI_API_KEY` - Required for full functionality
-- `DATABASE_URL` - Database connection string
-- `DATABASE_TYPE` - sqlite, postgresql, or mysql
-- `GRADIO_SHARE` - Share interface publicly
+Key environment variables (set in `.env`):
 
-## Troubleshooting
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `OPENAI_API_KEY` | *(empty)* | OpenAI API key (optional - mock mode without) |
+| `OPENAI_MODEL` | `gpt-4o-mini` | LLM model for SQL generation |
+| `DATABASE_URL` | `sqlite:///retail.db` | Database connection string |
+| `DATABASE_TYPE` | `sqlite` | Database type (sqlite/postgresql/mysql) |
+| `SIMILARITY_THRESHOLD` | `0.4` | RAG similarity threshold |
+| `GRADIO_SERVER_PORT` | `7860` | Web server port |
+| `GRADIO_SHARE` | `false` | Create public share link |
 
-**No OpenAI API Key?** The app uses a mock generator by default. Set `OPENAI_API_KEY` to enable real SQL generation.
+## Security
 
-**Database issues?** SQLite database is created automatically. For PostgreSQL/MySQL, ensure database exists and URL is correct.
-
-**Port already in use?** Change `GRADIO_SERVER_PORT` in `.env`
+- **Read-only DB**: SQLite PRAGMA query_only=ON enforced at connection level
+- **SQL Validation**: Rejects INSERT/UPDATE/DELETE/DROP with word-boundary matching
+- **Comment Stripping**: SQL comments stripped before validation (prevents bypass)
+- **Prompt Sanitization**: User input sanitized against injection markers
+- **Input Limits**: 500 character query limit
+- **Timeout Protection**: 30-second query timeout via threading
+- **Row Limits**: Maximum 1,000 rows per query result
 
 ## Documentation
 
-- Full documentation: [docs/README.md](docs/README.md)
-- Architecture diagrams: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
-- Technical specs: [docs/specification.md](docs/specification.md)
-- Demo queries: [demo_queries.md](demo_queries.md)
-- Security audit: [docs/SECURITY.md](docs/SECURITY.md)
-- Testing guide: [docs/TESTING.md](docs/TESTING.md)
+| Document | Description |
+|----------|-------------|
+| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Mermaid architecture diagrams |
+| [docs/specification.md](docs/specification.md) | Full technical specification |
+| [docs/SECURITY.md](docs/SECURITY.md) | Security measures and audit |
+| [docs/TESTING.md](docs/TESTING.md) | Testing strategy and guide |
+| [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) | Deployment instructions |
+| [docs/API.md](docs/API.md) | API documentation |
+| [reviews/CRITIQUE_REPORT.md](reviews/CRITIQUE_REPORT.md) | 10-agent code critique |
+
+## Troubleshooting
+
+**No OpenAI API Key?** The app works in demo mode with a context-aware mock generator. Set `OPENAI_API_KEY` for full LLM-powered SQL generation and insights.
+
+**Database issues?** SQLite database is auto-created with 150 customers, 25 products, 2,500 orders on first run.
+
+**Port already in use?** Set `GRADIO_SERVER_PORT=7861` in `.env`
 
 ## License
 
@@ -152,6 +209,6 @@ MIT License - See [LICENSE](LICENSE) file
 
 ---
 
-**Made for the Codecademy GenAI Bootcamp Contest**
+**Built for the Codecademy GenAI Bootcamp Contest** | Deadline: February 15, 2026
 
-Deadline: February 15, 2026
+`#CodecademyGenAIBootcamp`

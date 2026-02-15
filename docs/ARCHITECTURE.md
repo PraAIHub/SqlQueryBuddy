@@ -186,6 +186,8 @@ graph TD
     APP --> INS[insights.py<br/>Pattern Detection + Trends]
     APP --> OPT[optimizer.py<br/>Query Analysis + Suggestions]
     APP --> CFG[config.py<br/>Settings + Environment]
+    GEN --> SAN[sanitizer.py<br/>Prompt Input Sanitization]
+    INS --> SAN
 
     GEN --> |validates| GEN
     EXE --> |schema for| RAG

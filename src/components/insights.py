@@ -19,41 +19,7 @@ except ImportError:
         ChatOpenAI = None
 
 
-def _sanitize_prompt_input(text: str, max_length: int = 500) -> str:
-    """Sanitize user input to prevent prompt injection attacks.
-
-    Args:
-        text: User-provided input text
-        max_length: Maximum allowed length
-
-    Returns:
-        Sanitized text safe for LLM prompts
-    """
-    if not text:
-        return ""
-
-    # Limit length
-    text = str(text)[:max_length]
-
-    # Remove common injection markers (case-insensitive)
-    # Replace rather than remove to preserve readability
-    dangerous_patterns = [
-        ("ignore all previous", "disregard prior"),
-        ("ignore previous", "disregard prior"),
-        ("forget everything", "disregard prior context"),
-        ("new instructions:", "additional context:"),
-        ("system:", "note:"),
-        ("assistant:", "response:"),
-    ]
-
-    text_lower = text.lower()
-    for pattern, replacement in dangerous_patterns:
-        if pattern in text_lower:
-            # Case-insensitive replacement
-            import re
-            text = re.sub(re.escape(pattern), replacement, text, flags=re.IGNORECASE)
-
-    return text.strip()
+from src.components.sanitizer import sanitize_prompt_input as _sanitize_prompt_input
 
 
 class InsightGenerator:
