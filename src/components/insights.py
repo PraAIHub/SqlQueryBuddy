@@ -30,16 +30,20 @@ logger = logging.getLogger(__name__)
 class InsightGenerator:
     """Generates AI-driven insights from query results"""
 
-    def __init__(self, openai_api_key: str, model: str = "gpt-4o-mini"):
+    def __init__(self, openai_api_key: str, model: str = "gpt-4o-mini",
+                 timeout: int = 15, base_url: str = ""):
         if ChatOpenAI is None:
             raise ImportError("LangChain OpenAI integration not available")
-        self.llm = ChatOpenAI(
+        kwargs = dict(
             api_key=openai_api_key,
             model=model,
             temperature=0.3,
-            timeout=15,  # Prevent indefinite hangs on network issues
-            request_timeout=15,  # Same timeout for request-level calls
+            timeout=timeout,
+            request_timeout=timeout,
         )
+        if base_url:
+            kwargs["base_url"] = base_url
+        self.llm = ChatOpenAI(**kwargs)
 
     def generate_insights(
         self, query_results: List[Dict[str, Any]], user_query: str

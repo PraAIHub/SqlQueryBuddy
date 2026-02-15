@@ -35,17 +35,17 @@ def classify_llm_error(exc: BaseException) -> Tuple[str, str]:
         if (error_code and "insufficient_quota" in error_code) or "insufficient_quota" in error_str:
             return (
                 "quota_exceeded",
-                "OpenAI quota/billing exceeded",
+                "OpenAI quota/billing exceeded. Add credits at platform.openai.com/account/billing.",
             )
         if (error_code and "rate_limit" in error_code) or "rate_limit_exceeded" in error_str:
             return (
                 "rate_limited",
-                "OpenAI rate limited",
+                "OpenAI rate limited. Too many requests — wait a moment and try again.",
             )
         # Ambiguous 429 -- default to quota since that is the most common
         return (
             "quota_exceeded",
-            "OpenAI quota/billing exceeded",
+            "OpenAI quota/billing exceeded. Add credits at platform.openai.com/account/billing.",
         )
 
     # --------------------------------------------------
@@ -54,7 +54,7 @@ def classify_llm_error(exc: BaseException) -> Tuple[str, str]:
     if http_status == 401 or "401" in error_str or "authentication" in error_str or "invalid api key" in error_str or "invalid_api_key" in error_str:
         return (
             "invalid_api_key",
-            "OpenAI invalid API key",
+            "OpenAI API key is invalid or revoked. Check the key in your Secrets settings.",
         )
 
     # --------------------------------------------------
@@ -63,7 +63,7 @@ def classify_llm_error(exc: BaseException) -> Tuple[str, str]:
     if http_status == 404 or "model_not_found" in error_str or ("404" in error_str and "model" in error_str):
         return (
             "model_not_found",
-            "Model not found",
+            "Model not found. Check OPENAI_MODEL in your Variables settings.",
         )
 
     # --------------------------------------------------
@@ -72,7 +72,7 @@ def classify_llm_error(exc: BaseException) -> Tuple[str, str]:
     if "timeout" in error_type.lower() or "timeout" in error_str or "timed out" in error_str:
         return (
             "timeout",
-            "Request timeout",
+            "Request timed out. Try again or increase OPENAI_TIMEOUT.",
         )
 
     # --------------------------------------------------
@@ -81,12 +81,12 @@ def classify_llm_error(exc: BaseException) -> Tuple[str, str]:
     if any(kw in error_type.lower() for kw in ("connection", "network", "dns", "ssl")):
         return (
             "network_error",
-            "Network/connection error",
+            "Cannot reach OpenAI API. Check network connectivity.",
         )
     if any(kw in error_str for kw in ("connection", "network", "dns", "ssl", "unreachable")):
         return (
             "network_error",
-            "Network/connection error",
+            "Cannot reach OpenAI API. Check network connectivity.",
         )
 
     # --------------------------------------------------
@@ -94,5 +94,5 @@ def classify_llm_error(exc: BaseException) -> Tuple[str, str]:
     # --------------------------------------------------
     return (
         "unknown",
-        "Network/connection error",
+        "Unexpected error. Check logs for details.",
     )

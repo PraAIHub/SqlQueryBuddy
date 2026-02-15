@@ -31,6 +31,18 @@ from src.components.optimizer import QueryOptimizer
 logger = logging.getLogger(__name__)
 
 
+def _get_git_commit() -> str:
+    """Return short git commit hash, or 'unknown' if not in a repo."""
+    import subprocess
+    try:
+        return subprocess.check_output(
+            ["git", "rev-parse", "--short", "HEAD"],
+            stderr=subprocess.DEVNULL, text=True,
+        ).strip()
+    except Exception:
+        return "unknown"
+
+
 class QueryBuddyApp:
     """Main application class for SQL Query Buddy"""
 
@@ -84,7 +96,11 @@ class QueryBuddyApp:
         self.mock_generator = SQLGeneratorMock()
         if self.using_real_llm:
             self.sql_generator = SQLGenerator(
-                openai_api_key=settings.openai_api_key, model=settings.openai_model
+                openai_api_key=settings.openai_api_key,
+                model=settings.openai_model,
+                timeout=settings.openai_timeout,
+                max_retries=settings.openai_max_retries,
+                base_url=settings.openai_base_url,
             )
         else:
             self.sql_generator = self.mock_generator
@@ -111,7 +127,10 @@ class QueryBuddyApp:
         # Initialize insights generator (local fallback if no API key)
         if self.using_real_llm:
             self.insight_generator = InsightGenerator(
-                openai_api_key=settings.openai_api_key, model=settings.openai_model
+                openai_api_key=settings.openai_api_key,
+                model=settings.openai_model,
+                timeout=settings.openai_timeout,
+                base_url=settings.openai_base_url,
             )
             logger.info(f"🤖 Using OpenAI {settings.openai_model} for AI insights")
         else:
@@ -127,6 +146,7 @@ class QueryBuddyApp:
         # Store last results for export
         self._last_results = []
         self._last_sql = ""
+        self._auto_fallback_active = False
 
         # Query history: list of {"query": ..., "sql": ..., "rows": int}
         self._query_history = []
@@ -492,17 +512,30 @@ class QueryBuddyApp:
                     self._fallback_reason,
                     settings.app_mode,
                 )
+                # Build actionable fix message per error category
+                _fix_advice = {
+                    "quota_exceeded": "Your OpenAI account has no remaining quota/credits. Add credit at platform.openai.com/account/billing or use a different key.",
+                    "rate_limited": "Too many requests per minute. Wait a moment and try again.",
+                    "invalid_api_key": "Your API key is invalid or revoked. Check the key in HuggingFace Settings > Secrets.",
+                    "model_not_found": f"Model `{settings.openai_model}` is not available for this key. Check OPENAI_MODEL in HuggingFace Settings > Variables.",
+                    "timeout": f"Request timed out after {settings.openai_timeout}s. Try again or increase OPENAI_TIMEOUT.",
+                    "network_error": "Cannot reach OpenAI API. Check network connectivity.",
+                }
+                _advice = _fix_advice.get(_error_category, "Check your API key and billing in HuggingFace Settings.")
+
                 # APP_MODE=openai: show error, no silent fallback
                 if settings.app_mode == "openai":
                     error_msg = (
                         f"**OpenAI Error: {self._fallback_reason}**\n\n"
-                        "APP_MODE is set to `openai` — silent fallback is disabled.\n\n"
-                        "Check your API key, billing, and model name in HuggingFace Settings."
+                        f"{_advice}\n\n"
+                        "`APP_MODE=openai` — silent fallback is disabled."
                     )
                     chat_history.append({"role": "user", "content": user_message})
                     chat_history.append({"role": "assistant", "content": error_msg})
                     return "", chat_history, None, "", self._format_history(), "", "", ""
-                # APP_MODE=auto: fallback to mock generator
+
+                # APP_MODE=auto: fallback to mock generator with visible banner
+                self._auto_fallback_active = True
                 result = self.mock_generator.generate(
                     user_query=user_message,
                     schema_context=schema_str,
@@ -601,13 +634,20 @@ class QueryBuddyApp:
                 self._query_history = self._query_history[-50:]
 
             # Format response
-            response_lines = [
+            response_lines = []
+            # Show fallback banner if auto-mode fallback occurred
+            if self._auto_fallback_active:
+                response_lines.append(
+                    f"> **Fallback mode active** — OpenAI unavailable ({self._fallback_reason}). "
+                    "SQL and insights are approximate. Set `APP_MODE=openai` to disable fallback.\n"
+                )
+            response_lines.extend([
                 "**Generated SQL:**",
                 f"```sql\n{generated_sql}\n```",
                 "",
                 f"**Explanation:** {result.get('explanation', 'N/A')}",
                 "",
-            ]
+            ])
 
             # Add results with execution metadata
             row_count = exec_result.get("row_count", 0)
@@ -881,18 +921,25 @@ class QueryBuddyApp:
         )
         if settings.show_debug_panel:
             _masked_key = "set" if settings.openai_api_key and settings.openai_api_key.startswith("sk-") else "not set"
+            _commit = _get_git_commit()
+            _base_url = settings.openai_base_url or "default (api.openai.com)"
             status += (
                 f"\n### Debug Panel\n"
                 f"| Setting | Value |\n"
                 f"|---------|-------|\n"
                 f"| APP_MODE | `{settings.app_mode}` |\n"
                 f"| OPENAI_MODEL | `{settings.openai_model}` |\n"
+                f"| OPENAI_BASE_URL | `{_base_url}` |\n"
+                f"| OPENAI_TIMEOUT | `{settings.openai_timeout}s` |\n"
+                f"| OPENAI_MAX_RETRIES | `{settings.openai_max_retries}` |\n"
                 f"| LOG_LEVEL | `{settings.log_level}` |\n"
                 f"| API Key | `{_masked_key}` |\n"
-                f"| Timeout | `{settings.query_timeout_seconds}s` |\n"
+                f"| Query Timeout | `{settings.query_timeout_seconds}s` |\n"
                 f"| Similarity Threshold | `{settings.similarity_threshold}` |\n"
                 f"| Max Rows | `{settings.max_rows_return}` |\n"
                 f"| Fallback Reason | `{self._fallback_reason or 'none'}` |\n"
+                f"| Fallback Enabled | `{settings.app_mode != 'openai'}` |\n"
+                f"| Build | `{_commit}` |\n"
             )
         return status
 
@@ -1464,6 +1511,13 @@ class QueryBuddyApp:
                     """)
                     gr.Markdown("### System Status")
                     gr.Markdown(self._build_status_text())
+                    gr.Markdown(
+                        "### Deploy Notes\n"
+                        "- After changing HF **Variables/Secrets**, use **Settings > Restart this Space**.\n"
+                        "- Use **Factory reboot** only if `requirements.txt` changed.\n"
+                        "- Set `APP_MODE=openai` to see real errors (no silent fallback).\n"
+                        "- Set `SHOW_DEBUG_PANEL=true` to see full config above.\n"
+                    )
 
             # Hidden textbox to trigger scroll via JavaScript
             scroll_trigger = gr.Textbox(visible=False, value="0")

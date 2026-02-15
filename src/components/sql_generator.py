@@ -175,20 +175,24 @@ class SQLGenerator:
     (SystemMessage + HumanMessage) for proper prompt engineering.
     """
 
-    def __init__(self, openai_api_key: str, model: str = "gpt-4o-mini"):
+    def __init__(self, openai_api_key: str, model: str = "gpt-4o-mini",
+                 timeout: int = 15, max_retries: int = 2, base_url: str = ""):
         if ChatOpenAI is None:
             raise ImportError("LangChain OpenAI integration not available")
-        self.llm = ChatOpenAI(
+        kwargs = dict(
             api_key=openai_api_key,
             model=model,
             temperature=0.2,
-            timeout=15,  # Prevent indefinite hangs on network issues
-            request_timeout=15,  # Same timeout for request-level calls
+            timeout=timeout,
+            request_timeout=timeout,
         )
+        if base_url:
+            kwargs["base_url"] = base_url
+        self.llm = ChatOpenAI(**kwargs)
         self.validator = SQLValidator()
         self.prompt_builder = SQLPromptBuilder()
+        self.MAX_RETRIES = max_retries
 
-    MAX_RETRIES = 2
     RETRY_DELAY = 1  # seconds
 
     def _invoke_llm(self, messages) -> str:
