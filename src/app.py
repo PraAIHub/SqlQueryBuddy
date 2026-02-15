@@ -466,26 +466,36 @@ class QueryBuddyApp:
                     "- *Consider adding date filters or LIMIT to reduce scan scope*"
                 )
 
-            # Add categorized optimization suggestions
+            # Add categorized optimization suggestions as colored callouts
             opt_result = self.optimizer.analyze(generated_sql, user_message)
             categorized = opt_result.get("categorized", {})
 
             if categorized.get("assumptions"):
-                response_lines.append("\n**Assumptions:**")
-                for s in categorized["assumptions"]:
-                    response_lines.append(f"- {s['suggestion']}")
+                items = "".join(f"<li>{s['suggestion']}</li>" for s in categorized["assumptions"])
+                response_lines.append(
+                    f"\n<div style='border-left: 3px solid #9ca3af; padding: 6px 12px; margin: 8px 0; "
+                    f"background: #f9fafb; border-radius: 0 6px 6px 0; font-size: 13px;'>"
+                    f"<strong>Assumptions</strong><ul style='margin: 4px 0 0 0; padding-left: 18px;'>{items}</ul></div>"
+                )
 
             if categorized.get("performance"):
-                response_lines.append("\n**Performance:**")
-                for s in categorized["performance"]:
-                    response_lines.append(
-                        f"- {s['suggestion']} *(severity: {s.get('severity', 'low')})*"
-                    )
+                items = "".join(
+                    f"<li>{s['suggestion']} <em style='color:#92400e;'>(severity: {s.get('severity', 'low')})</em></li>"
+                    for s in categorized["performance"]
+                )
+                response_lines.append(
+                    f"\n<div style='border-left: 3px solid #f59e0b; padding: 6px 12px; margin: 8px 0; "
+                    f"background: #fffbeb; border-radius: 0 6px 6px 0; font-size: 13px;'>"
+                    f"<strong>Performance</strong><ul style='margin: 4px 0 0 0; padding-left: 18px;'>{items}</ul></div>"
+                )
 
             if categorized.get("next_steps"):
-                response_lines.append("\n**Next Steps:**")
-                for s in categorized["next_steps"]:
-                    response_lines.append(f"- {s['suggestion']}")
+                items = "".join(f"<li>{s['suggestion']}</li>" for s in categorized["next_steps"])
+                response_lines.append(
+                    f"\n<div style='border-left: 3px solid #3b82f6; padding: 6px 12px; margin: 8px 0; "
+                    f"background: #eff6ff; border-radius: 0 6px 6px 0; font-size: 13px;'>"
+                    f"<strong>Next Steps</strong><ul style='margin: 4px 0 0 0; padding-left: 18px;'>{items}</ul></div>"
+                )
 
             # Generate AI insights (displayed in dedicated panel)
             # Try LLM first, fall back to local generator on error
@@ -815,15 +825,19 @@ class QueryBuddyApp:
                     overflow-x: hidden;
                 }
 
-                /* Secondary button styling - lighter */
+                /* Secondary button styling - ghost/outline */
                 button.secondary {
                     background: transparent !important;
-                    border: 1px solid #d1d5db !important;
-                    color: #6b7280 !important;
+                    border: 1px solid #e5e7eb !important;
+                    color: #9ca3af !important;
+                    font-size: 12px !important;
+                    min-height: 32px !important;
+                    padding: 4px 12px !important;
                 }
                 button.secondary:hover {
                     background: #f9fafb !important;
                     border-color: #9ca3af !important;
+                    color: #6b7280 !important;
                 }
             </style>
             """)
@@ -899,36 +913,35 @@ class QueryBuddyApp:
 </div>
 """)
 
-            # Compact status indicator - small, non-interactive chips
+            # Status chips HTML - rendered inside right panel header below
             if self.using_real_llm:
                 status_html = f"""
-                <div style='text-align: center; font-size: 10px; color: #9ca3af; margin: 6px 0 12px 0; letter-spacing: 0.3px;'>
-                    <span style='background: #f3f4f6; padding: 3px 8px; border-radius: 4px; margin: 0 3px; border: 1px solid #e5e7eb;'>
+                <div style='display: flex; align-items: center; gap: 6px; font-size: 10px; color: #9ca3af; letter-spacing: 0.3px; padding: 4px 0;'>
+                    <span style='background: #f3f4f6; padding: 2px 7px; border-radius: 4px; border: 1px solid #e5e7eb; white-space: nowrap;'>
                         ✅ {settings.openai_model}
                     </span>
-                    <span style='background: #f3f4f6; padding: 3px 8px; border-radius: 4px; margin: 0 3px; border: 1px solid #e5e7eb;'>
+                    <span style='background: #f3f4f6; padding: 2px 7px; border-radius: 4px; border: 1px solid #e5e7eb; white-space: nowrap;'>
                         🗄️ {settings.database_type.upper()}
                     </span>
-                    <span style='background: #f3f4f6; padding: 3px 8px; border-radius: 4px; margin: 0 3px; border: 1px solid #e5e7eb;'>
+                    <span style='background: #f3f4f6; padding: 2px 7px; border-radius: 4px; border: 1px solid #e5e7eb; white-space: nowrap;'>
                         ⚡ FAISS
                     </span>
                 </div>
                 """
             else:
                 status_html = f"""
-                <div style='text-align: center; font-size: 10px; color: #9ca3af; margin: 6px 0 12px 0; letter-spacing: 0.3px;'>
-                    <span style='background: #fef3c7; padding: 3px 8px; border-radius: 4px; margin: 0 3px; border: 1px solid #fde68a;'>
+                <div style='display: flex; align-items: center; gap: 6px; font-size: 10px; color: #9ca3af; letter-spacing: 0.3px; padding: 4px 0;'>
+                    <span style='background: #fef3c7; padding: 2px 7px; border-radius: 4px; border: 1px solid #fde68a; white-space: nowrap;'>
                         🎮 Demo
                     </span>
-                    <span style='background: #f3f4f6; padding: 3px 8px; border-radius: 4px; margin: 0 3px; border: 1px solid #e5e7eb;'>
+                    <span style='background: #f3f4f6; padding: 2px 7px; border-radius: 4px; border: 1px solid #e5e7eb; white-space: nowrap;'>
                         🗄️ {settings.database_type.upper()}
                     </span>
-                    <span style='opacity: 0.6; font-style: italic; margin-left: 6px; font-size: 9px;'>
+                    <span style='opacity: 0.6; font-style: italic; font-size: 9px; white-space: nowrap;'>
                         (Set OPENAI_API_KEY for full LLM)
                     </span>
                 </div>
                 """
-            gr.HTML(status_html)
 
             with gr.Tabs():
                 # Tab 1: Chat Interface with 2-pane layout (MAIN TAB)
@@ -976,6 +989,7 @@ class QueryBuddyApp:
 
                         # RIGHT PANE: Tabbed results
                         with gr.Column(scale=5):
+                            gr.HTML(status_html)
                             with gr.Tabs():
                                 with gr.Tab("📊 Results"):
                                     gr.Markdown("""
@@ -1015,10 +1029,15 @@ What you'll see:
 - 💡 **Assumptions** made by the AI
                                     """)
                                     sql_output = gr.Code(
-                                        label="SQL Code (click to copy)",
+                                        label="SQL Code",
                                         language="sql",
                                         value="",
                                         lines=12,
+                                    )
+                                    copy_sql_btn = gr.Button("📋 Copy SQL", size="sm", variant="secondary")
+                                    copy_sql_btn.click(
+                                        None, [sql_output], None,
+                                        js="(sql) => { navigator.clipboard.writeText(sql || ''); }"
                                     )
 
                                 with gr.Tab("💡 Insights"):
@@ -1038,7 +1057,7 @@ What you'll see:
                                 with gr.Tab("🗂️ History"):
                                     gr.Markdown("### Query History")
                                     history_output = gr.Markdown(
-                                        value="*No queries yet. Start asking questions!*",
+                                        value="*No queries yet.* Run a query to see your session history here.",
                                     )
 
                                 with gr.Tab("🎯 Context"):
@@ -1101,6 +1120,8 @@ What you'll see:
                 # Return results + re-enable all interactive components + dashboard update + scroll trigger
                 return list(results) + [
                     gr.update(interactive=True),   # submit_btn
+                    gr.update(interactive=True),   # export_btn
+                    gr.update(interactive=True),   # clear
                     gr.update(interactive=True),   # ex1
                     gr.update(interactive=True),   # ex2
                     gr.update(interactive=True),   # ex3
@@ -1117,7 +1138,7 @@ What you'll see:
             query_outputs = [
                 msg, chatbot, chart_output, insights_output,
                 history_output, rag_output, sql_output, filter_section,
-                submit_btn, ex1, ex2, ex3, ex4, ex5, ex6, ex7, ex8, dashboard_view,
+                submit_btn, export_btn, clear, ex1, ex2, ex3, ex4, ex5, ex6, ex7, ex8, dashboard_view,
                 scroll_trigger
             ]
 
@@ -1156,17 +1177,20 @@ What you'll see:
             scroll_trigger.change(None, None, None, js=scroll_js)
 
             # Event handlers with loading state management
+            # Disable all interactive buttons (submit + export + clear + 8 examples = 11)
+            all_buttons = [submit_btn, export_btn, clear, ex1, ex2, ex3, ex4, ex5, ex6, ex7, ex8]
+
             msg.submit(
-                lambda: [gr.update(interactive=False)] * 9,  # Disable submit + 8 example buttons
-                outputs=[submit_btn, ex1, ex2, ex3, ex4, ex5, ex6, ex7, ex8],
+                lambda: [gr.update(interactive=False)] * 11,
+                outputs=all_buttons,
                 queue=False
             ).then(
                 process_with_loading, [msg, chatbot], query_outputs
             )
 
             submit_btn.click(
-                lambda: [gr.update(interactive=False)] * 9,  # Disable submit + 8 example buttons
-                outputs=[submit_btn, ex1, ex2, ex3, ex4, ex5, ex6, ex7, ex8],
+                lambda: [gr.update(interactive=False)] * 11,
+                outputs=all_buttons,
                 queue=False
             ).then(
                 process_with_loading, [msg, chatbot], query_outputs
@@ -1210,11 +1234,11 @@ What you'll see:
             def handle_export():
                 path = self.export_csv()
                 if path:
-                    return gr.File(value=path, visible=True), gr.update(interactive=True)
+                    return gr.File(value=path, visible=True)
                 gr.Info("No results to export. Run a query first.")
-                return gr.File(visible=False), gr.update(interactive=True)
+                return gr.File(visible=False)
 
-            export_btn.click(handle_export, outputs=[export_file, msg])
+            export_btn.click(handle_export, outputs=[export_file])
 
             # Enable/disable Send button based on textbox content
             def update_send_button(text):
@@ -1238,6 +1262,8 @@ What you'll see:
                 # But we want query_text for msg AND re-enable it, so skip results[0]
                 return [gr.update(value=query_text, interactive=True)] + list(results[1:]) + [
                     gr.update(interactive=True),   # submit_btn
+                    gr.update(interactive=True),   # export_btn
+                    gr.update(interactive=True),   # clear
                     gr.update(interactive=True),   # ex1
                     gr.update(interactive=True),   # ex2
                     gr.update(interactive=True),   # ex3
@@ -1268,19 +1294,8 @@ What you'll see:
             for btn, query in example_queries.items():
                 # First: Immediately disable ALL buttons when ANY example is clicked
                 btn.click(
-                    fn=lambda: [
-                        gr.update(interactive=False),  # msg
-                        gr.update(interactive=False),  # submit_btn
-                        gr.update(interactive=False),  # ex1
-                        gr.update(interactive=False),  # ex2
-                        gr.update(interactive=False),  # ex3
-                        gr.update(interactive=False),  # ex4
-                        gr.update(interactive=False),  # ex5
-                        gr.update(interactive=False),  # ex6
-                        gr.update(interactive=False),  # ex7
-                        gr.update(interactive=False),  # ex8
-                    ],
-                    outputs=[msg, submit_btn, ex1, ex2, ex3, ex4, ex5, ex6, ex7, ex8],
+                    fn=lambda: [gr.update(interactive=False)] * 12,
+                    outputs=[msg] + all_buttons,
                     queue=False  # Instant disable
                 ).then(
                     # Second: Process query and re-enable all buttons (scroll_trigger updated here)

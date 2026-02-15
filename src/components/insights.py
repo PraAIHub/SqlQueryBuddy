@@ -338,25 +338,34 @@ class LocalInsightGenerator:
     def generate_insights(
         self, query_results: List[Dict[str, Any]], user_query: str
     ) -> str:
-        """Generate business insights from query results using local analysis."""
+        """Generate business insights from query results using local analysis.
+
+        Returns structured markdown with sections: Key Takeaway, Key Metrics,
+        Trends, Anomalies, and Recommendations.
+        """
         if not query_results:
             return InsightGenerator._empty_result_insight(user_query)
 
-        insights = []
         count = len(query_results)
+
+        # Collect insights into categorized buckets
+        takeaways: List[str] = []
+        metrics: List[str] = []
+        trend_insights: List[str] = []
+        anomaly_insights: List[str] = []
 
         # Identify the "name" column and the primary numeric metric
         name_col = self._find_name_column(query_results)
         numeric_cols = self._get_numeric_columns(query_results)
 
-        # Top performer analysis (most impactful insight)
+        # Top performer analysis → takeaways
         if name_col and numeric_cols:
             primary_metric = numeric_cols[0]
-            insights.extend(
+            takeaways.extend(
                 self._top_performer_insights(query_results, name_col, primary_metric, count)
             )
 
-        # Distribution / concentration analysis (skip primary metric already covered above)
+        # Distribution / concentration analysis → metrics
         secondary_metrics = numeric_cols[1:] if numeric_cols else []
         for col in secondary_metrics:
             values = [row[col] for row in query_results if isinstance(row.get(col), (int, float))]
@@ -368,12 +377,12 @@ class LocalInsightGenerator:
                     if top_pct > 40:
                         top_row = max(query_results, key=lambda r: r.get(col, 0))
                         label = top_row.get(name_col, "The top entry") if name_col else "The top entry"
-                        insights.append(
+                        metrics.append(
                             f"{label} also dominates {col.replace('_', ' ')} "
-                            f"with {top_pct:.0f}% of the total."
+                            f"with {top_pct:.0f}% of the total"
                         )
 
-        # Comparison insights (gap between top and bottom)
+        # Comparison insights (gap between top and bottom) → metrics
         if name_col and numeric_cols:
             col = numeric_cols[0]
             values = [row.get(col, 0) for row in query_results if isinstance(row.get(col), (int, float))]
@@ -386,13 +395,13 @@ class LocalInsightGenerator:
                 if bottom_val > 0:
                     ratio = top_val / bottom_val
                     if ratio >= 2:
-                        insights.append(
+                        metrics.append(
                             f"{top_row.get(name_col, 'Top')} outperforms "
                             f"{bottom_row.get(name_col, 'bottom')} by {ratio:.1f}x "
-                            f"in {col.replace('_', ' ')}."
+                            f"in {col.replace('_', ' ')}"
                         )
 
-        # Categorical distribution
+        # Categorical distribution → metrics
         string_patterns = PatternDetector.detect_string_patterns(query_results)
         for col, info in string_patterns.items():
             if col == name_col:
@@ -400,7 +409,6 @@ class LocalInsightGenerator:
             unique = info.get("unique_count", 0)
             total_count = info.get("count", 0)
             if 1 < unique <= 5 and total_count > unique:
-                # Show distribution across categories
                 category_counts: Dict[str, int] = {}
                 for row in query_results:
                     val = row.get(col, "")
@@ -409,14 +417,13 @@ class LocalInsightGenerator:
                 if category_counts:
                     dominant = max(category_counts, key=category_counts.get)
                     dom_pct = (category_counts[dominant] / total_count) * 100
-                    insights.append(
+                    metrics.append(
                         f"'{dominant}' is the most common {col.replace('_', ' ')} "
-                        f"({dom_pct:.0f}% of records)."
+                        f"({dom_pct:.0f}% of records)"
                     )
 
-        # Trend detection (only for time-ordered data)
+        # Trend detection (only for time-ordered data) → trend_insights
         trends = TrendAnalyzer.analyze_trends(query_results)
-        # Only report trends if data appears time-ordered (has date/month/year column)
         has_time_col = any(
             "date" in k.lower() or "month" in k.lower() or "year" in k.lower()
             for k in query_results[0].keys()
@@ -430,34 +437,57 @@ class LocalInsightGenerator:
                 )
                 if first_val and first_val != 0:
                     pct_change = (total_change / abs(first_val)) * 100
-                    insights.append(
+                    trend_insights.append(
                         f"{col.replace('_', ' ').title()} is {direction} "
-                        f"({pct_change:+.1f}% overall change)."
+                        f"({pct_change:+.1f}% overall change)"
                     )
 
-        # Anomaly detection (spikes/drops)
+        # Anomaly detection (spikes/drops) → anomaly_insights
         anomalies = TrendAnalyzer.detect_anomalies(query_results)
         for col, items in anomalies.items():
-            for a in items[:2]:  # Report at most 2 anomalies per column
-                # Try to find a label for the anomalous row
+            for a in items[:2]:
                 idx = a["index"]
                 label = ""
                 if name_col and idx < len(query_results):
                     label = f" ({query_results[idx].get(name_col, '')})"
-                insights.append(
-                    f"Anomaly detected in {col.replace('_', ' ')}: "
-                    f"row {idx + 1}{label} is a {a['type']} "
-                    f"(value {a['value']:,.2f}, mean {a['mean']:,.2f})."
+                anomaly_insights.append(
+                    f"Row {idx + 1}{label}: {a['type']} in {col.replace('_', ' ')} "
+                    f"(value {a['value']:,.2f} vs mean {a['mean']:,.2f})"
                 )
 
-        if not insights:
-            insights.append(
-                f"Query returned {count} record{'s' if count != 1 else ''} "
+        # Build structured markdown output
+        sections: List[str] = []
+
+        # Key Takeaway (top 1-2 lines)
+        if takeaways:
+            sections.append("#### Key Takeaway\n" + takeaways[0])
+            if len(takeaways) > 1:
+                sections[-1] += "\n" + takeaways[1]
+
+        # Key Metrics (bullets)
+        if metrics:
+            bullet_list = "\n".join(f"- {m}" for m in metrics)
+            sections.append(f"#### Key Metrics\n{bullet_list}")
+
+        # Trends
+        if trend_insights:
+            bullet_list = "\n".join(f"- {t}" for t in trend_insights)
+            sections.append(f"#### Trends\n{bullet_list}")
+
+        # Anomalies
+        if anomaly_insights:
+            bullet_list = "\n".join(f"- {a}" for a in anomaly_insights)
+            sections.append(f"#### Anomalies\n{bullet_list}")
+
+        # Fallback if nothing was generated
+        if not sections:
+            sections.append(
+                f"#### Summary\nQuery returned {count} record{'s' if count != 1 else ''} "
                 f"with {len(numeric_cols)} numeric and "
                 f"{len(string_patterns)} categorical column{'s' if len(string_patterns) != 1 else ''}."
             )
 
-        return " ".join(insights)
+        return "\n\n".join(sections)
 
     @staticmethod
     def _find_name_column(data: List[Dict[str, Any]]) -> Optional[str]:
