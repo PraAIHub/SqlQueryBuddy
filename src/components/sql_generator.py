@@ -909,6 +909,9 @@ class SQLGeneratorMock:
                 f"WHERE {where_clause};"
             )
 
+        # Apply time filter if the follow-up mentions a year/period
+        follow_up_sql = self._apply_time_filter(follow_up_sql, user_query)
+
         explanation = (
             f"This query refines the previous result by applying filters: "
             f"{where_clause}."

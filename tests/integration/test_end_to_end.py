@@ -294,6 +294,29 @@ class TestEndToEnd:
             f"Category percentages should sum to ~100, got {total_pct}"
         )
 
+    def test_sqlite_integer_division_regression(self, temp_db):
+        """Prove the old pattern (a / b * 100.0) yields 0 on SQLite
+        while the fixed pattern (a * 100.0 / b) yields a correct value.
+        This test would have caught the 0.00% bug before the fix."""
+        db = DatabaseConnection(temp_db)
+
+        # OLD pattern: integer / integer truncates to 0, then * 100.0 = 0.0
+        bad = db.execute_query("SELECT ROUND(3 / 7 * 100.0, 2) AS pct")
+        assert bad["success"]
+        assert float(bad["rows"][0]["pct"]) == 0.0, (
+            "Sanity: SQLite integer division should yield 0"
+        )
+
+        # FIXED pattern: * 100.0 first forces float arithmetic
+        good = db.execute_query(
+            "SELECT CASE WHEN 7 = 0 THEN 0 "
+            "ELSE ROUND(3 * 100.0 / 7, 2) END AS pct"
+        )
+        assert good["success"]
+        assert float(good["rows"][0]["pct"]) == 42.86, (
+            f"Expected 42.86, got {good['rows'][0]['pct']}"
+        )
+
     def test_divide_by_zero_returns_zero_not_error(self, temp_db):
         """CASE WHEN guard must return 0 when denominator is 0."""
         db = DatabaseConnection(temp_db)

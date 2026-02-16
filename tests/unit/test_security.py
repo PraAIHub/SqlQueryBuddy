@@ -498,6 +498,62 @@ class TestMockSharePatterns:
 
 
 # ------------------------------------------------------------------
+# Follow-up logic and average-order-value correctness
+# ------------------------------------------------------------------
+
+
+class TestFollowUpAndAvgLogic:
+    """Verify follow-up SQL uses revenue ranking and avg uses order totals."""
+
+    def test_follow_up_region_uses_revenue_ranking_not_select_star(self):
+        """Follow-up with California must GROUP BY customer_id and ORDER BY
+        revenue DESC, not produce 'SELECT * ... LIMIT 3'."""
+        mock = SQLGeneratorMock()
+        mock.generate("Show me top customers by spending", "")
+        result = mock.generate(
+            "From those, filter to California only", ""
+        )
+        assert result["success"]
+        sql = result["generated_sql"]
+        assert "GROUP BY c.customer_id" in sql, (
+            f"Follow-up must group by customer_id, got: {sql}"
+        )
+        assert "ORDER BY total_spent DESC" in sql, (
+            f"Follow-up must rank by revenue, got: {sql}"
+        )
+        assert "SELECT *" not in sql
+
+    def test_follow_up_region_with_year_applies_time_filter(self):
+        """Follow-up 'filter to California for 2024' must include the
+        year constraint, not silently drop it."""
+        mock = SQLGeneratorMock()
+        mock.generate("Show me top customers by spending", "")
+        result = mock.generate(
+            "From those, filter to California for 2024", ""
+        )
+        assert result["success"]
+        sql = result["generated_sql"]
+        assert "region = 'California'" in sql
+        assert "2024" in sql, (
+            f"Year filter '2024' was dropped from follow-up SQL: {sql}"
+        )
+
+    def test_avg_order_value_uses_order_total_not_line_items(self):
+        """AVG order value must use AVG(orders.total_amount), NOT
+        AVG(order_items.subtotal) which is per-line-item."""
+        mock = SQLGeneratorMock()
+        result = mock.generate("What is the average order value?", "")
+        assert result["success"]
+        sql = result["generated_sql"].lower()
+        assert "avg(total_amount)" in sql, (
+            f"Expected AVG(total_amount), got: {sql}"
+        )
+        assert "subtotal" not in sql, (
+            f"Should NOT use subtotal for avg order value: {sql}"
+        )
+
+
+# ------------------------------------------------------------------
 # Heavy query guardrails
 # ------------------------------------------------------------------
 
