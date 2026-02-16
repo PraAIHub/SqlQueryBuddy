@@ -182,3 +182,46 @@ _SQL_KEYWORDS = {
     "with", "recursive", "cast", "coalesce", "ifnull", "nullif",
     "strftime", "date", "now", "true", "false",
 }
+
+
+# ------------------------------------------------------------------
+# Nested aggregate detection
+# ------------------------------------------------------------------
+
+_AGG_RE = re.compile(r"\b(SUM|AVG|MIN|MAX|COUNT)\s*\(", re.IGNORECASE)
+
+
+def detect_nested_aggregates(sql: str) -> Tuple[bool, str, str]:
+    """Detect aggregate functions nested inside other aggregates.
+
+    SQLite disallows ``SUM((x - AVG(x)) * (x - AVG(x)))`` because the
+    inner AVG runs at the same GROUP BY level as the outer SUM.
+
+    Returns (detected, message, suggestion).  All falsy when clean.
+    """
+    cleaned = _strip_strings_and_comments(sql)
+
+    for m in _AGG_RE.finditer(cleaned):
+        outer_func = m.group(1).upper()
+        start = m.end() - 1          # the '('
+        depth, i = 1, start + 1
+        while i < len(cleaned) and depth > 0:
+            if cleaned[i] == "(":
+                depth += 1
+            elif cleaned[i] == ")":
+                depth -= 1
+            i += 1
+        if depth == 0:
+            inner = cleaned[start + 1 : i - 1]
+            inner_match = _AGG_RE.search(inner)
+            if inner_match:
+                inner_func = inner_match.group(1).upper()
+                return (
+                    True,
+                    f"Nested aggregate: {inner_func}() inside {outer_func}(). "
+                    f"SQLite does not allow aggregates inside aggregates. "
+                    f"Use the variance identity or a CTE to precompute.",
+                    "Replace SUM((col - AVG(col)) * (col - AVG(col))) with "
+                    "AVG(col * col) - AVG(col) * AVG(col)",
+                )
+    return (False, "", "")

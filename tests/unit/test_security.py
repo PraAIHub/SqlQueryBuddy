@@ -4,6 +4,7 @@ import re
 import pytest
 from src.components.sanitizer import sanitize_prompt_input
 from src.components.sql_generator import SQLValidator, SQLPromptBuilder, SQLGenerator, SQLGeneratorMock
+from src.components.sql_validator import detect_nested_aggregates
 from src.components.optimizer import QueryOptimizer
 from src.components.conversation_state import ConversationState, resolve_references
 
@@ -453,6 +454,19 @@ class TestMockSharePatterns:
         # Must reference oi.subtotal, not o.total_amount
         assert "subtotal" in sql.lower()
 
+    def test_most_volatile_category_pattern(self):
+        mock = SQLGeneratorMock()
+        result = mock.generate(
+            "Which category is most volatile month-to-month (highest variance)?", ""
+        )
+        assert result["success"]
+        sql = result["generated_sql"]
+        assert "variance" in sql.lower()
+        assert "LIMIT 1" in sql.upper()
+        # Must NOT contain nested aggregates
+        detected, _, _ = detect_nested_aggregates(sql)
+        assert not detected, f"Mock volatility SQL has nested aggregates: {sql}"
+
 
 # ------------------------------------------------------------------
 # Heavy query guardrails
@@ -521,3 +535,48 @@ class TestHeavyQueryGuardrails:
         )
         assert warning is not None
         assert "email" in warning
+
+
+# ------------------------------------------------------------------
+# Nested aggregate detection
+# ------------------------------------------------------------------
+
+
+class TestNestedAggregateDetection:
+    """Test detect_nested_aggregates catches illegal nesting."""
+
+    def test_sum_wrapping_avg_detected(self):
+        sql = (
+            "SELECT category, "
+            "SUM((revenue - AVG(revenue)) * (revenue - AVG(revenue))) AS variance "
+            "FROM monthly_revenue GROUP BY category"
+        )
+        detected, msg, suggestion = detect_nested_aggregates(sql)
+        assert detected is True
+        assert "AVG" in msg and "SUM" in msg
+        assert "AVG(col * col)" in suggestion
+
+    def test_avg_wrapping_sum_detected(self):
+        sql = "SELECT AVG(SUM(subtotal)) FROM order_items GROUP BY order_id"
+        detected, msg, _ = detect_nested_aggregates(sql)
+        assert detected is True
+        assert "SUM" in msg
+
+    def test_clean_variance_identity_passes(self):
+        sql = (
+            "SELECT category, "
+            "AVG(revenue * revenue) - AVG(revenue) * AVG(revenue) AS variance "
+            "FROM monthly_revenue GROUP BY category"
+        )
+        detected, _, _ = detect_nested_aggregates(sql)
+        assert detected is False
+
+    def test_simple_aggregates_pass(self):
+        sql = "SELECT SUM(subtotal), AVG(price), COUNT(*) FROM order_items"
+        detected, _, _ = detect_nested_aggregates(sql)
+        assert detected is False
+
+    def test_nested_in_string_literal_ignored(self):
+        sql = "SELECT 'SUM(AVG(x))' AS label, SUM(subtotal) FROM order_items"
+        detected, _, _ = detect_nested_aggregates(sql)
+        assert detected is False

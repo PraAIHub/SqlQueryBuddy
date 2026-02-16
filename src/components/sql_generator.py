@@ -29,6 +29,7 @@ except ImportError:
 
 from src.components.sanitizer import sanitize_prompt_input as _sanitize_prompt_input
 from src.components.error_classifier import classify_llm_error
+from src.components.sql_validator import detect_nested_aggregates
 
 logger = logging.getLogger(__name__)
 
@@ -85,6 +86,10 @@ class SQLPromptBuilder:
         "7. For variance/volatility queries: always include the products table JOIN "
         "in each subquery or CTE where you reference p.category. "
         "In subqueries, redefine table aliases — outer query aliases are NOT visible inside subqueries.\n"
+        "   NEVER nest aggregate functions (e.g. SUM(... AVG(...) ...)) — SQLite will "
+        "reject them. Compute variance with the identity: "
+        "AVG(col * col) - AVG(col) * AVG(col). "
+        "Do NOT use SUM((col - AVG(col)) * (col - AVG(col))).\n"
         "8. Return ONLY the raw SQL query. No comments, no explanations, "
         "no markdown. The response must start with SELECT or WITH."
     )
@@ -373,6 +378,16 @@ class SQLGenerator:
 
             # Fix alias scoping issues (e.g. p.category without products JOIN)
             generated_sql = self._fix_alias_scoping(generated_sql)
+
+            # Block nested aggregates (e.g. SUM(... AVG(...) ...))
+            nested, nest_msg, nest_suggestion = detect_nested_aggregates(generated_sql)
+            if nested:
+                return {
+                    "success": False,
+                    "error": nest_msg,
+                    "generated_sql": generated_sql,
+                    "suggestion": nest_suggestion,
+                }
 
             # Validate
             is_valid, error_msg = self.validator.validate(generated_sql)
@@ -690,9 +705,39 @@ class SQLGeneratorMock:
                 "customers and checks whether they account for more than 40%."
             ),
         },
-        # Volatility / variance by category
+        # Most volatile category (LIMIT 1)
         {
-            "keywords": ["volatility", "variance", "variation", "fluctuation", "category", "revenue"],
+            "keywords": ["volatile", "most volatile", "highest variance", "variance", "category"],
+            "sql": (
+                "WITH monthly_revenue AS ("
+                "SELECT strftime('%Y-%m', o.order_date) AS month, "
+                "p.category AS category, "
+                "SUM(oi.subtotal) AS revenue "
+                "FROM orders o "
+                "JOIN order_items oi ON o.order_id = oi.order_id "
+                "JOIN products p ON oi.product_id = p.product_id "
+                "GROUP BY month, category), "
+                "category_stats AS ("
+                "SELECT category, "
+                "AVG(revenue) AS avg_revenue, "
+                "AVG(revenue * revenue) AS avg_revenue_sq "
+                "FROM monthly_revenue "
+                "GROUP BY category) "
+                "SELECT category, "
+                "ROUND(avg_revenue_sq - (avg_revenue * avg_revenue), 2) AS variance "
+                "FROM category_stats "
+                "ORDER BY variance DESC "
+                "LIMIT 1;"
+            ),
+            "explanation": (
+                "This query finds the single most volatile product category by "
+                "computing the variance of monthly revenue using the identity "
+                "VAR(x) = E[x**2] - E[x]**2, avoiding nested aggregates."
+            ),
+        },
+        # Volatility / variance by category (all categories)
+        {
+            "keywords": ["volatility", "volatile", "variance", "variation", "fluctuation", "category", "revenue"],
             "sql": (
                 "WITH monthly_cat AS ("
                 "SELECT p.category, strftime('%Y-%m', o.order_date) AS month, "

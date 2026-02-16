@@ -234,6 +234,26 @@ class TestEndToEnd:
         top_name = result["data"][0].get("name", "")
         assert top_name in insights or len(insights) > 20
 
+    def test_most_volatile_category_returns_one_row(self, temp_db):
+        """Volatility query must execute without error and return exactly 1 row."""
+        db = DatabaseConnection(temp_db)
+        executor = QueryExecutor(db)
+        mock = SQLGeneratorMock()
+
+        result = mock.generate(
+            "Which category is most volatile month-to-month (highest variance)?", ""
+        )
+        assert result["success"]
+        exec_result = executor.execute(result["generated_sql"])
+        assert exec_result["success"], (
+            f"Volatility SQL failed: {exec_result.get('error')}\n"
+            f"SQL: {result['generated_sql']}"
+        )
+        assert exec_result["row_count"] == 1
+        row = exec_result["data"][0]
+        assert "category" in row
+        assert "variance" in row
+
     def test_rag_with_real_schema(self, temp_db):
         """Test RAG pipeline with actual database schema."""
         from src.components.rag_system import RAGSystem, FAISSVectorDB, SimpleEmbeddingProvider
