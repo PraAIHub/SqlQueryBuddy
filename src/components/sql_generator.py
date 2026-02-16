@@ -55,7 +55,14 @@ class SQLPromptBuilder:
         "- 'region' is in customers, NOT in orders — always JOIN customers for region\n"
         "- 'category' is in products, NOT in orders — JOIN products via order_items\n"
         "- 'product_name' does not exist — use products.name\n"
-        "- For revenue/sales queries: SUM(o.total_amount) or SUM(oi.subtotal)\n\n"
+        "- For revenue/sales queries: SUM(o.total_amount) or SUM(oi.subtotal)\n"
+        "- DOUBLE-COUNTING: When joining orders WITH order_items, do NOT use "
+        "SUM(o.total_amount) — each order row is duplicated per line item. "
+        "Use SUM(oi.subtotal) for line-item revenue, or aggregate orders "
+        "in a CTE first then join to order_items/products.\n"
+        "- For share/percent-of-total queries: compute per-group revenue and "
+        "total revenue separately (CTE or subquery), then divide. "
+        "Example: per_group / total * 100.0 AS share_percent\n\n"
         "SQL Generation Instructions:\n"
         "1. Generate a valid SQL query that answers the user's question\n"
         "2. Use ONLY the tables and columns listed above — NO invented columns\n"
@@ -75,7 +82,10 @@ class SQLPromptBuilder:
         "   Use NOT IN or NOT EXISTS subquery, never LEFT JOIN (causes duplicates).\n"
         "6. NEVER reference table aliases that are not in the FROM or JOIN clauses. "
         "All tables used in WHERE must be either in FROM clause or in a subquery.\n"
-        "7. Return ONLY the raw SQL query. No comments, no explanations, "
+        "7. For variance/volatility queries: always include the products table JOIN "
+        "in each subquery or CTE where you reference p.category. "
+        "In subqueries, redefine table aliases — outer query aliases are NOT visible inside subqueries.\n"
+        "8. Return ONLY the raw SQL query. No comments, no explanations, "
         "no markdown. The response must start with SELECT or WITH."
     )
 
@@ -142,8 +152,9 @@ class SQLValidator:
 
     # Keywords that should not appear in queries for safety (matched as whole words)
     DANGEROUS_KEYWORDS = [
-        "DROP", "DELETE", "TRUNCATE", "ALTER", "CREATE INDEX",
+        "DROP", "DELETE", "TRUNCATE", "ALTER", "CREATE",
         "EXEC", "UPDATE", "INSERT", "GRANT", "REVOKE",
+        "MERGE", "CALL",
     ]
 
     @staticmethod
@@ -159,7 +170,11 @@ class SQLValidator:
     @staticmethod
     def validate(sql_query: str) -> tuple[bool, Optional[str]]:
         """Validate SQL query for safety and syntax"""
-        # Strip comments first to prevent bypass
+        # Reject if raw SQL contains comment markers (potential injection vector)
+        if "--" in sql_query or "/*" in sql_query:
+            return False, "SQL comments are not allowed"
+
+        # Strip comments and normalize for keyword analysis
         cleaned = SQLValidator._strip_comments(sql_query)
         sql_upper = cleaned.upper().strip()
 
@@ -168,8 +183,8 @@ class SQLValidator:
             if re.search(rf"\b{keyword}\b", sql_upper):
                 return False, f"Dangerous operation detected: {keyword}"
 
-        # Check for basic syntax
-        if not sql_upper.startswith(("SELECT", "WITH")):
+        # Check for basic syntax — allow SELECT, WITH (CTEs), and SHOW
+        if not sql_upper.startswith(("SELECT", "WITH", "SHOW")):
             return False, "Query must be a SELECT statement"
 
         # Check for multiple statements (reject any semicolon not at the very end)
@@ -188,7 +203,8 @@ class SQLGenerator:
     """
 
     def __init__(self, openai_api_key: str, model: str = "gpt-4o-mini",
-                 timeout: int = 15, max_retries: int = 2, base_url: str = ""):
+                 timeout: int = 15, max_retries: int = 2, base_url: str = "",
+                 max_tokens: int = 1024):
         if ChatOpenAI is None:
             raise ImportError("LangChain OpenAI integration not available")
         kwargs = dict(
@@ -197,6 +213,7 @@ class SQLGenerator:
             temperature=0.2,
             timeout=timeout,
             request_timeout=timeout,
+            max_tokens=max_tokens,
         )
         if base_url:
             kwargs["base_url"] = base_url
@@ -243,6 +260,91 @@ class SQLGenerator:
         sql = re.sub(r"^\s*/\*.*?\*/\s*", "", sql, flags=re.DOTALL).strip()
         return sql
 
+    # Alias-to-table mapping for the retail schema
+    _ALIAS_TABLE_MAP = {
+        "p": "products",
+        "oi": "order_items",
+        "o": "orders",
+        "c": "customers",
+    }
+
+    @staticmethod
+    def _fix_alias_scoping(sql: str) -> str:
+        """Fix alias references in subqueries/CTEs that lack the required JOIN.
+
+        The most common LLM error: a CTE body references ``p.category`` but
+        does not JOIN ``products p``.  This method scans each parenthesised
+        sub-SELECT (CTE body or subquery) and injects the missing JOIN when
+        the alias is used but the table is absent from that clause.
+        """
+        # We only attempt repair for the known schema aliases.
+        # Strategy: find each CTE body or subquery, check for alias
+        # references without the table, and inject the JOIN.
+
+        # Pattern: match CTE bodies  ``name AS (SELECT ... )``
+        # and inline subqueries ``(SELECT ... )``
+        def _fix_block(block: str) -> str:
+            """Fix a single SELECT block (CTE body or subquery)."""
+            block_upper = block.upper()
+            changed = False
+            for alias, table in SQLGenerator._ALIAS_TABLE_MAP.items():
+                # Does the block reference this alias (e.g. "p.category")?
+                if f"{alias}." not in block.lower():
+                    continue
+                # Does it already have the table in its FROM/JOIN?
+                if table.upper() in block_upper:
+                    continue
+                # Need to inject a JOIN.  Find the right place.
+                # Inject before GROUP BY, WHERE, ORDER BY — whichever comes first.
+                inject_clause = f" JOIN {table} {alias} ON {alias}.product_id = oi.product_id"
+                if alias == "o":
+                    inject_clause = f" JOIN {table} {alias} ON oi.order_id = {alias}.order_id"
+                elif alias == "c":
+                    inject_clause = f" JOIN {table} {alias} ON {alias}.customer_id = o.customer_id"
+
+                # Find the insertion point (before GROUP BY, WHERE, ORDER BY, HAVING)
+                for kw in ["GROUP BY", "WHERE", "ORDER BY", "HAVING", "LIMIT"]:
+                    idx = block_upper.find(kw)
+                    if idx > 0:
+                        block = block[:idx] + inject_clause + " " + block[idx:]
+                        block_upper = block.upper()
+                        changed = True
+                        break
+                else:
+                    # No keyword found — append before closing
+                    block = block.rstrip() + inject_clause
+                    block_upper = block.upper()
+                    changed = True
+            return block
+
+        def _find_cte_bodies(sql_text: str) -> list:
+            """Find (start, end) of each CTE body using balanced parens."""
+            bodies = []
+            # Find each ``AS (`` and then the matching ``)``
+            for m in re.finditer(r"AS\s*\(", sql_text, re.IGNORECASE):
+                open_pos = m.end() - 1  # position of '('
+                depth = 1
+                i = open_pos + 1
+                while i < len(sql_text) and depth > 0:
+                    if sql_text[i] == "(":
+                        depth += 1
+                    elif sql_text[i] == ")":
+                        depth -= 1
+                    i += 1
+                if depth == 0:
+                    # body is between open_pos+1 and i-1 (exclusive of parens)
+                    bodies.append((open_pos + 1, i - 1))
+            return bodies
+
+        result = sql
+        # Process CTE bodies from last to first (so indices stay valid)
+        for start, end in reversed(_find_cte_bodies(result)):
+            body = result[start:end]
+            fixed_body = _fix_block(body)
+            if fixed_body != body:
+                result = result[:start] + fixed_body + result[end:]
+        return result
+
     def generate(
         self,
         user_query: str,
@@ -268,6 +370,9 @@ class SQLGenerator:
             # Generate SQL via LangChain LLM (with retry)
             raw_sql = self._invoke_llm(messages)
             generated_sql = self._clean_sql(raw_sql)
+
+            # Fix alias scoping issues (e.g. p.category without products JOIN)
+            generated_sql = self._fix_alias_scoping(generated_sql)
 
             # Validate
             is_valid, error_msg = self.validator.validate(generated_sql)
@@ -520,6 +625,92 @@ class SQLGeneratorMock:
             ),
             "explanation": (
                 "This query lists all orders with customer names, ordered by date (most recent first)."
+            ),
+        },
+        # Share / percent of total revenue by region
+        {
+            "keywords": ["share", "percent", "percentage", "proportion", "region", "revenue"],
+            "sql": (
+                "WITH region_rev AS ("
+                "SELECT c.region, SUM(o.total_amount) AS region_revenue "
+                "FROM customers c "
+                "JOIN orders o ON c.customer_id = o.customer_id "
+                "GROUP BY c.region), "
+                "total AS (SELECT SUM(total_amount) AS grand_total FROM orders) "
+                "SELECT r.region, r.region_revenue, "
+                "ROUND(r.region_revenue * 100.0 / t.grand_total, 2) AS share_of_total_revenue "
+                "FROM region_rev r, total t "
+                "ORDER BY r.region_revenue DESC;"
+            ),
+            "explanation": (
+                "This query calculates each region's share of total revenue. "
+                "Revenue is aggregated per region, then divided by the grand total "
+                "to produce a percentage."
+            ),
+        },
+        # Share / percent of total revenue by category
+        {
+            "keywords": ["share", "percent", "percentage", "proportion", "category", "revenue"],
+            "sql": (
+                "WITH cat_rev AS ("
+                "SELECT p.category, SUM(oi.subtotal) AS category_revenue "
+                "FROM products p "
+                "JOIN order_items oi ON p.product_id = oi.product_id "
+                "GROUP BY p.category), "
+                "total AS (SELECT SUM(subtotal) AS grand_total FROM order_items) "
+                "SELECT c.category, c.category_revenue, "
+                "ROUND(c.category_revenue * 100.0 / t.grand_total, 2) AS share_of_total_revenue "
+                "FROM cat_rev c, total t "
+                "ORDER BY c.category_revenue DESC;"
+            ),
+            "explanation": (
+                "This query calculates each category's share of total revenue "
+                "using line-item subtotals to avoid double-counting."
+            ),
+        },
+        # Top 10 customers concentration (>40% of revenue)
+        {
+            "keywords": ["top 10", "40%", "40 percent", "concentration", "dominate", "account for"],
+            "sql": (
+                "WITH customer_rev AS ("
+                "SELECT c.customer_id, c.name, SUM(o.total_amount) AS customer_revenue "
+                "FROM customers c "
+                "JOIN orders o ON c.customer_id = o.customer_id "
+                "GROUP BY c.customer_id, c.name "
+                "ORDER BY customer_revenue DESC LIMIT 10), "
+                "total AS (SELECT SUM(total_amount) AS grand_total FROM orders) "
+                "SELECT ROUND(SUM(cr.customer_revenue) * 100.0 / t.grand_total, 2) "
+                "AS top10_share_percent, "
+                "CASE WHEN SUM(cr.customer_revenue) * 100.0 / t.grand_total > 40 "
+                "THEN 'Yes' ELSE 'No' END AS is_over_40_percent "
+                "FROM customer_rev cr, total t;"
+            ),
+            "explanation": (
+                "This query calculates the share of total revenue held by the top 10 "
+                "customers and checks whether they account for more than 40%."
+            ),
+        },
+        # Volatility / variance by category
+        {
+            "keywords": ["volatility", "variance", "variation", "fluctuation", "category", "revenue"],
+            "sql": (
+                "WITH monthly_cat AS ("
+                "SELECT p.category, strftime('%Y-%m', o.order_date) AS month, "
+                "SUM(oi.subtotal) AS monthly_revenue "
+                "FROM products p "
+                "JOIN order_items oi ON p.product_id = oi.product_id "
+                "JOIN orders o ON oi.order_id = o.order_id "
+                "GROUP BY p.category, month) "
+                "SELECT category, "
+                "ROUND(AVG(monthly_revenue), 2) AS avg_monthly, "
+                "ROUND(AVG(monthly_revenue * monthly_revenue) - AVG(monthly_revenue) * AVG(monthly_revenue), 2) AS variance "
+                "FROM monthly_cat "
+                "GROUP BY category "
+                "ORDER BY variance DESC;"
+            ),
+            "explanation": (
+                "This query calculates monthly revenue variance per product category "
+                "using line-item subtotals. Higher variance indicates more volatile sales."
             ),
         },
         # Count queries

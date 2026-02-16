@@ -65,9 +65,13 @@ class ConversationState:
                 # If query asks about "per region" / ranking, store top region
                 if _is_ranking_query(query_lower) or "per region" in query_lower:
                     top_row = results[0]
-                    self.computed_entities["top_region"] = top_row.get("region", "")
+                    top_region = top_row.get("region", "")
+                    self.computed_entities["top_region"] = top_region
+                    # Keep filters_applied in sync so follow-ups use the #1 region
+                    if top_region:
+                        self.filters_applied["region"] = top_region
                     if len(results) >= 2:
-                        self.computed_entities["rank_1_value"] = top_row.get("region", "")
+                        self.computed_entities["rank_1_value"] = top_region
                         self.computed_entities["rank_2_value"] = results[1].get("region", "")
                 break
 
@@ -167,8 +171,8 @@ _CATEGORY_REFS = re.compile(
     r"\b(?:that category|the category|this category|the top category)\b",
     re.IGNORECASE,
 )
-_RANK_1_REF = re.compile(r"\b(?:#1|the (?:top|first|#1))\b", re.IGNORECASE)
-_RANK_2_REF = re.compile(r"\b(?:#2|the second|the (?:#2|runner.?up))\b", re.IGNORECASE)
+_RANK_1_REF = re.compile(r"(?<!\w)(?:#1|the (?:top|first|#1))(?!\w)", re.IGNORECASE)
+_RANK_2_REF = re.compile(r"(?<!\w)(?:#2|the second|the (?:#2|runner.?up))(?!\w)", re.IGNORECASE)
 _THIS_YEAR_REF = re.compile(r"\b(?:this year|the year|same year)\b", re.IGNORECASE)
 
 

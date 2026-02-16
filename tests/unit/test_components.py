@@ -83,16 +83,17 @@ class TestSQLValidator:
         is_valid, error = SQLValidator.validate("SELECT * FROM customers; DELETE FROM products;")
         assert is_valid is False
 
-    def test_block_comment_bypass(self):
-        """SQL inside block comments should still be caught after stripping."""
+    def test_block_comment_rejected(self):
+        """SQL with block comments is now rejected outright (injection vector)."""
         is_valid, error = SQLValidator.validate("SELECT 1 /* DROP TABLE customers */")
-        # After comment stripping, this becomes "SELECT 1" which is valid
-        assert is_valid is True
+        assert is_valid is False
+        assert "comment" in error.lower()
 
-    def test_line_comment_with_drop(self):
-        """DROP in a line comment should be stripped and not block the query."""
+    def test_line_comment_rejected(self):
+        """SQL with line comments is now rejected outright (injection vector)."""
         is_valid, error = SQLValidator.validate("SELECT * FROM customers -- DROP TABLE")
-        assert is_valid is True
+        assert is_valid is False
+        assert "comment" in error.lower()
 
     def test_drop_outside_comment(self):
         """Real DROP after comment stripping should be blocked."""
@@ -422,6 +423,43 @@ class TestCurrencyFormatting:
     def test_non_currency_column_string(self):
         assert QueryBuddyApp._format_cell("region", "California") == "California"
 
+    # --- Percent formatting tests ---
+
+    def test_percent_column_formats_as_percent(self):
+        assert QueryBuddyApp._format_cell("percent_of_total_revenue", 9.11) == "9.11%"
+
+    def test_pct_column(self):
+        assert QueryBuddyApp._format_cell("sales_pct", 45.5) == "45.50%"
+
+    def test_share_column(self):
+        assert QueryBuddyApp._format_cell("market_share", 0.23) == "0.23%"
+
+    def test_rate_column(self):
+        assert QueryBuddyApp._format_cell("return_rate", 12.0) == "12.00%"
+
+    def test_share_of_total_revenue(self):
+        """share_of_total_revenue should render as percent, not currency."""
+        assert QueryBuddyApp._format_cell("share_of_total_revenue", 15.3) == "15.30%"
+
+    def test_percentage_column(self):
+        assert QueryBuddyApp._format_cell("percentage_change", -3.5) == "-3.50%"
+
+    def test_proportion_column(self):
+        assert QueryBuddyApp._format_cell("proportion", 0.78) == "0.78%"
+
+    # --- Additional edge cases ---
+
+    def test_format_na_string(self):
+        result = QueryBuddyApp._format_cell("total_amount", "N/A")
+        assert result == "N/A"
+
+    def test_format_int(self):
+        assert QueryBuddyApp._format_cell("price", 42) == "$42.00"
+
+    def test_format_negative(self):
+        result = QueryBuddyApp._format_cell("revenue", -500.5)
+        assert result == "$-500.50"
+
 
 class TestOptimizerCategorization:
     """Test optimizer categorized suggestions and assumptions."""
@@ -476,6 +514,47 @@ class TestOptimizerCategorization:
             "SELECT name FROM customers WHERE region = 'California' LIMIT 10"
         )
         assert cost["is_heavy"] is False
+
+    # --- Constant queries (no FROM) should NOT be heavy ---
+
+    def test_constant_select_not_heavy(self):
+        cost = QueryOptimizer.estimate_query_cost("SELECT 1 AS x")
+        assert cost["is_heavy"] is False
+
+    def test_union_constant_not_heavy(self):
+        cost = QueryOptimizer.estimate_query_cost("SELECT 1 UNION SELECT 2")
+        assert cost["is_heavy"] is False
+
+    def test_subquery_with_agg_not_heavy(self):
+        cost = QueryOptimizer.estimate_query_cost(
+            "SELECT (SELECT COUNT(*) FROM customers) AS total_customers, "
+            "(SELECT COUNT(*) FROM orders) AS total_orders"
+        )
+        assert cost["is_heavy"] is False
+
+    # --- Auto-LIMIT guardrails ---
+
+    def test_auto_limit_applied_to_select_star(self):
+        sql = "SELECT * FROM customers"
+        result = QueryOptimizer.auto_limit_sql(sql)
+        assert "LIMIT" in result.upper()
+
+    def test_auto_limit_not_applied_to_aggregation(self):
+        sql = "SELECT COUNT(*) FROM customers"
+        assert QueryOptimizer.auto_limit_sql(sql) == sql
+
+    def test_select_star_from_table_is_heavy(self):
+        """SELECT * FROM <table> with no WHERE/LIMIT/agg must be flagged heavy."""
+        cost = QueryOptimizer.estimate_query_cost("SELECT * FROM customers")
+        assert cost["is_heavy"] is True
+
+    # --- Sensitive column detection ---
+
+    def test_sensitive_email_detected(self):
+        warning = QueryOptimizer.check_sensitive_columns(
+            "SELECT name, email FROM customers"
+        )
+        assert warning is not None
 
 
 class TestQueryPlan:

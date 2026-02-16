@@ -284,9 +284,10 @@ class QueryOptimizer:
         has_agg = any(fn in sql_upper for fn in ["COUNT(", "SUM(", "AVG(", "MAX(", "MIN("])
         has_group_by = "GROUP BY" in sql_upper
         has_select_star = "SELECT *" in sql_upper
+        has_from = bool(re.search(r"\bFROM\b", sql_upper))
 
-        # Full table scan: no WHERE + no LIMIT + no aggregation
-        if not has_where and not has_limit and not has_agg and not has_group_by:
+        # Full table scan: only applies when query reads from a table
+        if has_from and not has_where and not has_limit and not has_agg and not has_group_by:
             cost_score += 3
             warnings.append("Full table scan — no WHERE or LIMIT clause")
 
@@ -311,6 +312,47 @@ class QueryOptimizer:
             "is_heavy": cost_score >= 3,
             "warnings": warnings,
         }
+
+    # Columns considered sensitive / PII
+    SENSITIVE_COLUMNS = {"email", "phone", "address", "password", "hash", "ssn", "token"}
+
+    @staticmethod
+    def check_sensitive_columns(sql_query: str) -> Optional[str]:
+        """Return a warning string if the query selects sensitive/PII columns."""
+        sql_upper = sql_query.upper()
+        # SELECT * inherently exposes all columns
+        if "SELECT *" in sql_upper:
+            return (
+                "SELECT * may expose sensitive columns (email, phone, etc.). "
+                "Specify only the columns you need."
+            )
+        sql_lower = sql_query.lower()
+        found = [col for col in QueryOptimizer.SENSITIVE_COLUMNS if col in sql_lower]
+        if found:
+            return (
+                f"Query selects potentially sensitive column(s): {', '.join(found)}. "
+                "Ensure this data is handled appropriately."
+            )
+        return None
+
+    @staticmethod
+    def auto_limit_sql(sql_query: str, default_limit: int = 100) -> str:
+        """Append LIMIT to unbounded SELECT queries that lack one.
+
+        Only applies when the query has a FROM clause, no LIMIT, no
+        aggregation, and no GROUP BY — i.e. it would return raw rows.
+        """
+        sql_upper = sql_query.upper()
+        has_limit = "LIMIT" in sql_upper
+        has_agg = any(fn in sql_upper for fn in ["COUNT(", "SUM(", "AVG(", "MAX(", "MIN("])
+        has_group_by = "GROUP BY" in sql_upper
+        has_from = bool(re.search(r"\bFROM\b", sql_upper))
+
+        if has_from and not has_limit and not has_agg and not has_group_by:
+            # Strip trailing semicolon, append LIMIT, re-add semicolon
+            stripped = sql_query.rstrip().rstrip(";").rstrip()
+            return f"{stripped} LIMIT {default_limit};"
+        return sql_query
 
     @staticmethod
     def _calculate_optimization_level(suggestions: List[Dict]) -> str:

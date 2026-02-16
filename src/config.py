@@ -13,11 +13,12 @@ class Settings(BaseSettings):
     """Application settings loaded from environment variables"""
 
     # OpenAI Configuration
-    openai_api_key: str = Field(default="", alias="OPENAI_API_KEY")
+    openai_api_key: str = Field(default="", alias="OPENAI_API_KEY", repr=False)
     openai_model: str = Field(default="gpt-4o-mini", alias="OPENAI_MODEL")
     openai_base_url: str = Field(default="", alias="OPENAI_BASE_URL")  # Optional: for compatible providers
     openai_timeout: int = Field(default=15, alias="OPENAI_TIMEOUT")
     openai_max_retries: int = Field(default=2, alias="OPENAI_MAX_RETRIES")
+    openai_max_tokens: int = Field(default=1024, alias="OPENAI_MAX_TOKENS")
 
     # Database Configuration
     database_type: Literal["sqlite", "postgresql", "mysql"] = Field(

@@ -5,6 +5,7 @@ import io
 import logging
 import math
 import os
+import re
 import tempfile
 import time
 import uuid
@@ -24,7 +25,7 @@ from src.components.rag_system import (
     SimpleEmbeddingProvider,
     FAISS_AVAILABLE,
 )
-from src.components.sql_generator import SQLGenerator, SQLGeneratorMock
+from src.components.sql_generator import SQLGenerator, SQLGeneratorMock, SQLValidator
 from src.components.insights import InsightGenerator, LocalInsightGenerator
 from src.components.optimizer import QueryOptimizer
 from src.components.conversation_state import ConversationState, resolve_references
@@ -107,6 +108,7 @@ class QueryBuddyApp:
                 timeout=settings.openai_timeout,
                 max_retries=settings.openai_max_retries,
                 base_url=settings.openai_base_url,
+                max_tokens=settings.openai_max_tokens,
             )
         else:
             self.sql_generator = self.mock_generator
@@ -185,6 +187,11 @@ class QueryBuddyApp:
         "unique", "number", "num", "id",
     }
 
+    # Column name hints that indicate percentage values (checked BEFORE currency)
+    PERCENT_HINTS = {
+        "percent", "pct", "ratio", "share", "rate", "proportion", "percentage",
+    }
+
     @staticmethod
     def _format_cell(column_name: str, value) -> str:
         """Format a cell value; apply $X,XXX.XX for currency columns."""
@@ -192,6 +199,15 @@ class QueryBuddyApp:
         # Exclude count-like columns even if they contain a currency hint word
         if any(ex in col_lower for ex in QueryBuddyApp.CURRENCY_EXCLUDE):
             return str(value)
+        # Check percent hints BEFORE currency hints
+        if any(hint in col_lower for hint in QueryBuddyApp.PERCENT_HINTS):
+            try:
+                fval = float(value)
+                if math.isnan(fval):
+                    return "N/A"
+                return f"{fval:.2f}%"
+            except (ValueError, TypeError):
+                pass
         if any(hint in col_lower for hint in QueryBuddyApp.CURRENCY_HINTS):
             try:
                 fval = float(value)
@@ -399,10 +415,14 @@ class QueryBuddyApp:
         else:
             display_value = f"{value:,.2f}"
 
-        # Check if it's a currency column
+        # Check if it's a percent or currency column
         label_lower = label.lower()
+        is_excluded = any(ex in label_lower for ex in self.CURRENCY_EXCLUDE)
+        is_percent = any(hint in label_lower for hint in self.PERCENT_HINTS)
         is_currency = any(hint in label_lower for hint in self.CURRENCY_HINTS)
-        if is_currency and not any(ex in label_lower for ex in self.CURRENCY_EXCLUDE):
+        if not is_excluded and is_percent:
+            display_value = f"{value:.2f}%"
+        elif not is_excluded and is_currency:
             if abs(value) < 1000:
                 display_value = f"${value:,.2f}"
             else:
@@ -480,6 +500,21 @@ class QueryBuddyApp:
                 f"- Then: \"From those, filter to California only\""
             )
             chat_history.append({"role": "user", "content": user_message[:100] + "..."})
+            chat_history.append({"role": "assistant", "content": error_response})
+            return "", chat_history, None, "", self._format_history(), "", "", ""
+
+        # Block multi-statement injection attempts in user input
+        # (semicolon immediately followed by a dangerous SQL keyword)
+        _MULTI_STMT_INJECTION = re.compile(
+            r";\s*(?:DROP|DELETE|TRUNCATE|ALTER|CREATE|INSERT|UPDATE|GRANT|REVOKE)\b",
+            re.IGNORECASE,
+        )
+        if _MULTI_STMT_INJECTION.search(user_message):
+            error_response = (
+                "**Blocked:** Your query contains a potentially dangerous SQL pattern. "
+                "Please rephrase your question in plain English."
+            )
+            chat_history.append({"role": "user", "content": user_message})
             chat_history.append({"role": "assistant", "content": error_response})
             return "", chat_history, None, "", self._format_history(), "", "", ""
 
@@ -632,6 +667,22 @@ class QueryBuddyApp:
                 except Exception:
                     pass  # Fall through with original SQL
 
+            # Pre-execution SQL safety gate: validate the final SQL
+            # (auto-fix loop may have produced SQL that bypasses initial validation)
+            is_safe, safety_err = SQLValidator.validate(generated_sql)
+            if not is_safe:
+                response = (
+                    f"**SQL Blocked:** {safety_err}\n\n"
+                    "The generated SQL did not pass safety validation. "
+                    "Please rephrase your question."
+                )
+                chat_history.append({"role": "user", "content": user_message})
+                chat_history.append({"role": "assistant", "content": response})
+                return "", chat_history, None, "", self._format_history(), "", "", ""
+
+            # Auto-LIMIT unbounded SELECT queries to prevent full table scans
+            generated_sql = self.optimizer.auto_limit_sql(generated_sql)
+
             # Execute query with timing
             t0 = time.time()
             exec_result = self.query_executor.execute(generated_sql)
@@ -775,6 +826,13 @@ class QueryBuddyApp:
                     response_lines.append(f"- {w}")
                 response_lines.append(
                     "- *Consider adding date filters or LIMIT to reduce scan scope*"
+                )
+
+            # Sensitive column warning (PII / privacy)
+            sensitive_warning = self.optimizer.check_sensitive_columns(generated_sql)
+            if sensitive_warning:
+                response_lines.append(
+                    f"\n**Privacy Notice:** {sensitive_warning}"
                 )
 
             # Add categorized optimization suggestions as colored callouts
@@ -1182,7 +1240,7 @@ class QueryBuddyApp:
 
     def create_interface(self) -> gr.Blocks:
         """Create Gradio interface"""
-        with gr.Blocks(title="SQL Query Buddy", theme=gr.themes.Soft()) as demo:
+        with gr.Blocks(title="SQL Query Buddy") as demo:
             # Custom CSS for modern styling
             gr.HTML("""
             <style>
@@ -1917,11 +1975,21 @@ def main():
     demo = app.create_interface()
 
     demo.queue(default_concurrency_limit=1)
-    demo.launch(
-        server_name=settings.server_host,
-        server_port=settings.gradio_server_port,
-        share=settings.gradio_share,
-    )
+    # Prefer passing theme to launch() (Gradio 6+); fall back to Blocks if unsupported
+    try:
+        demo.launch(
+            server_name=settings.server_host,
+            server_port=settings.gradio_server_port,
+            share=settings.gradio_share,
+            theme=gr.themes.Soft(),
+        )
+    except TypeError:
+        # Older Gradio versions don't accept theme in launch()
+        demo.launch(
+            server_name=settings.server_host,
+            server_port=settings.gradio_server_port,
+            share=settings.gradio_share,
+        )
 
 
 if __name__ == "__main__":
