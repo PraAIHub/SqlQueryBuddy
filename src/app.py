@@ -1339,9 +1339,9 @@ class QueryBuddyApp:
                         # RIGHT PANE: Tabbed results
                         with gr.Column(scale=5):
                             gr.HTML(status_html)
-                            with gr.Tabs():
-                                with gr.Tab("📊 Results"):
-                                    gr.HTML("""
+
+                            # Empty-state HTML (dynamic — hidden once data arrives)
+                            RESULTS_EMPTY_HTML = """
 <div style='text-align: center; padding: 48px 24px; color: #9ca3af;'>
     <div style='font-size: 40px; margin-bottom: 8px; opacity: 0.5;'>📊</div>
     <div style='font-size: 15px; font-weight: 600; color: #6b7280; margin-bottom: 6px;'>No results yet</div>
@@ -1349,14 +1349,22 @@ class QueryBuddyApp:
         Run a query to see charts here.<br>
         Time series, bar charts, and single-value cards render automatically.
     </div>
-</div>
-                                    """)
+</div>"""
+                            SQL_EMPTY_HTML = """
+<div style='text-align: center; padding: 32px 24px; color: #9ca3af;'>
+    <div style='font-size: 40px; margin-bottom: 8px; opacity: 0.5;'>🔍</div>
+    <div style='font-size: 15px; font-weight: 600; color: #6b7280; margin-bottom: 6px;'>No SQL generated yet</div>
+    <div style='font-size: 13px; max-width: 300px; margin: 0 auto;'>
+        Your optimized SQL query will appear here after you ask a question.
+    </div>
+</div>"""
+
+                            with gr.Tabs():
+                                with gr.Tab("📊 Results"):
+                                    results_empty = gr.HTML(value=RESULTS_EMPTY_HTML)
 
                                     # Quick filters
-                                    filter_section = gr.Markdown(
-                                        value="",
-                                        visible=False,
-                                    )
+                                    filter_section = gr.Markdown(value="")
 
                                     chart_output = gr.Plot(
                                         label="Visualization",
@@ -1366,15 +1374,7 @@ class QueryBuddyApp:
                                     )
 
                                 with gr.Tab("🔍 SQL"):
-                                    gr.HTML("""
-<div style='text-align: center; padding: 32px 24px; color: #9ca3af;'>
-    <div style='font-size: 40px; margin-bottom: 8px; opacity: 0.5;'>🔍</div>
-    <div style='font-size: 15px; font-weight: 600; color: #6b7280; margin-bottom: 6px;'>No SQL generated yet</div>
-    <div style='font-size: 13px; max-width: 300px; margin: 0 auto;'>
-        Your optimized SQL query will appear here after you ask a question.
-    </div>
-</div>
-                                    """)
+                                    sql_empty = gr.HTML(value=SQL_EMPTY_HTML)
                                     sql_output = gr.Code(
                                         label="SQL Code",
                                         language="sql",
@@ -1608,8 +1608,15 @@ class QueryBuddyApp:
                 import time
                 scroll_timestamp = str(time.time())
 
-                # Return results + re-enable all interactive components + dashboard update + scroll trigger
+                # Hide empty-state placeholders when data is present
+                # results[2] = chart, results[6] = generated_sql
+                _has_chart = results[2] is not None
+                _has_sql = bool(results[6])
+
+                # Return results + empty states + re-enable buttons + dashboard + scroll
                 return list(results) + [
+                    "" if _has_chart else RESULTS_EMPTY_HTML,  # results_empty
+                    "" if _has_sql else SQL_EMPTY_HTML,        # sql_empty
                     gr.update(interactive=True),   # submit_btn
                     gr.update(interactive=True),   # export_btn
                     gr.update(interactive=True),   # clear
@@ -1625,10 +1632,11 @@ class QueryBuddyApp:
                     scroll_timestamp,  # scroll_trigger - triggers JS on change
                 ]
 
-            # All outputs including button states, dashboard, filters, and scroll trigger
+            # All outputs including empty states, button states, dashboard, filters, and scroll trigger
             query_outputs = [
                 msg, chatbot, chart_output, insights_output,
                 history_output, rag_output, sql_output, filter_section,
+                results_empty, sql_empty,
                 submit_btn, export_btn, clear, ex1, ex2, ex3, ex4, ex5, ex6, ex7, ex8, dashboard_view,
                 scroll_trigger
             ]
@@ -1734,9 +1742,11 @@ class QueryBuddyApp:
                     EMPTY_CONTEXT,
                     "",
                     "",  # filter_section
+                    RESULTS_EMPTY_HTML,  # results_empty restored
+                    SQL_EMPTY_HTML,      # sql_empty restored
                 )
 
-            clear.click(clear_chat, outputs=[chatbot, msg, chart_output, insights_output, history_output, rag_output, sql_output, filter_section])
+            clear.click(clear_chat, outputs=[chatbot, msg, chart_output, insights_output, history_output, rag_output, sql_output, filter_section, results_empty, sql_empty])
 
             # Dashboard refresh button
             refresh_dashboard.click(
@@ -1770,10 +1780,16 @@ class QueryBuddyApp:
                 import time
                 scroll_timestamp = str(time.time())
 
-                # Return results + re-enable all buttons + dashboard + scroll trigger
-                # Results: msg(""), chatbot, chart, insights, history, rag, sql, filter_section (8 items)
+                # Hide empty-state placeholders when data is present
+                _has_chart = results[2] is not None
+                _has_sql = bool(results[6])
+
+                # Return results + empty states + re-enable all buttons + dashboard + scroll trigger
+                # results[0]=msg, [1]=chatbot, [2]=chart, [3]=insights, [4]=history, [5]=rag, [6]=sql, [7]=filter
                 # Clear textbox (query already visible in chat history)
                 return [gr.update(value="", interactive=True)] + list(results[1:]) + [
+                    "" if _has_chart else RESULTS_EMPTY_HTML,  # results_empty
+                    "" if _has_sql else SQL_EMPTY_HTML,        # sql_empty
                     gr.update(interactive=True),   # submit_btn
                     gr.update(interactive=True),   # export_btn
                     gr.update(interactive=True),   # clear
