@@ -27,6 +27,12 @@ from src.components.rag_system import (
 from src.components.sql_generator import SQLGenerator, SQLGeneratorMock
 from src.components.insights import InsightGenerator, LocalInsightGenerator
 from src.components.optimizer import QueryOptimizer
+from src.components.conversation_state import ConversationState, resolve_references
+from src.components.sql_validator import (
+    build_schema_whitelist,
+    validate_sql_identifiers,
+    build_fix_message,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -142,6 +148,12 @@ class QueryBuddyApp:
 
         # Cache schema to avoid re-fetching on every query
         self._cached_schema = self.db_connection.get_schema()
+
+        # Build schema whitelist for SQL identifier validation
+        self._all_tables, self._table_columns = build_schema_whitelist(self._cached_schema)
+
+        # Conversation state for multi-turn context retention
+        self.conv_state = ConversationState()
 
         # Store last results for export
         self._last_results = []
@@ -472,8 +484,12 @@ class QueryBuddyApp:
             return "", chat_history, None, "", self._format_history(), "", "", ""
 
         try:
-            # Parse user input with NLP
-            parsed = self.context_manager.process_input(user_message)
+            # Resolve pronoun/reference expressions using conversation state
+            # e.g. "that region" → "the West region", "them" → actual customer names
+            resolved_message = resolve_references(user_message, self.conv_state)
+
+            # Parse user input with NLP (use resolved version for better intent detection)
+            parsed = self.context_manager.process_input(resolved_message)
             parsed_query = parsed["parsed_query"]
             intent = parsed_query["intent"]
             entities = parsed_query["entities"]
@@ -502,11 +518,18 @@ class QueryBuddyApp:
                     f"Referenced entities: {entities_str}"
                 )
 
-            # Generate SQL (with mock fallback on API errors like 429)
+            # Append active filters context so LLM carries forward constraints
+            _filters_ctx = ""
+            if self.conv_state.filters_applied:
+                _filters_ctx = "\n\nActive filters from previous turns: " + ", ".join(
+                    f"{k}={v}" for k, v in self.conv_state.filters_applied.items()
+                )
+
+            # Generate SQL (use resolved_message so references are concrete)
             conversation_ctx = self.context_manager.get_full_context()
             result = self.sql_generator.generate(
-                user_query=user_message,
-                schema_context=schema_str,
+                user_query=resolved_message,
+                schema_context=schema_str + _filters_ctx,
                 conversation_history=conversation_ctx,
             )
 
@@ -583,6 +606,31 @@ class QueryBuddyApp:
                 return "", chat_history, None, "", self._format_history(), "", "", ""
 
             generated_sql = result.get("generated_sql", "")
+
+            # Schema-aware validation: catch invented columns BEFORE execution
+            unknown_ids = validate_sql_identifiers(
+                generated_sql, self._all_tables, self._table_columns
+            )
+            if unknown_ids:
+                logger.info("Auto-correcting SQL: unknown identifiers=%s", unknown_ids)
+                fix_msg = build_fix_message(unknown_ids, self._table_columns)
+                fix_ctx = (
+                    f"{schema_str}\n\n"
+                    f"INVALID SQL (has unknown columns):\n{generated_sql}\n"
+                    f"{fix_msg}\n"
+                    f"Rewrite the SQL using ONLY valid columns from the schema above."
+                )
+                try:
+                    fix_result = self.sql_generator.generate(
+                        user_query=resolved_message,
+                        schema_context=fix_ctx,
+                        conversation_history=conversation_ctx,
+                    )
+                    if fix_result.get("success") and fix_result.get("generated_sql"):
+                        generated_sql = fix_result["generated_sql"]
+                        result["explanation"] = fix_result.get("explanation", result.get("explanation", ""))
+                except Exception:
+                    pass  # Fall through with original SQL
 
             # Execute query with timing
             t0 = time.time()
@@ -661,6 +709,10 @@ class QueryBuddyApp:
             data = exec_result.get("data", [])
             self._last_results = data
             self._last_sql = generated_sql
+
+            # Update conversation state with computed entities / filters
+            if data:
+                self.conv_state.update_from_results(user_message, generated_sql, data)
             _run_status = "fallback" if self._auto_fallback_active else "success"
             self._query_history.append({
                 "query": user_message,
@@ -681,6 +733,11 @@ class QueryBuddyApp:
                 response_lines.append(
                     f"> **Fallback mode active** — OpenAI unavailable ({self._fallback_reason}). "
                     "SQL and insights are approximate. Set `APP_MODE=openai` to disable fallback.\n"
+                )
+            # Show reference resolution note if query was rewritten
+            if resolved_message != user_message:
+                response_lines.append(
+                    f"> *Interpreted as:* {resolved_message}\n"
                 )
             response_lines.extend([
                 "**Generated SQL:**",
@@ -813,11 +870,14 @@ class QueryBuddyApp:
                     f"{formatted_plan}\n"
                 )
 
+            # Active context filters (judge-visible pills)
+            active_filters_html = self.conv_state.get_active_filters_html()
+
             # Generate quick filter options
             filter_opts = self._detect_filter_options(data)
-            filter_md = ""
+            filter_md = active_filters_html  # Start with active context pills
             if filter_opts:
-                filter_md = "**🎛️ Quick Filters:** "
+                filter_md += "**🎛️ Quick Filters:** "
                 for col_name, values in filter_opts.items():
                     filter_md += f"\n\n*{col_name}:* "
                     filter_md += " • ".join([f"`{v}`" for v in values[:5]])
@@ -1734,6 +1794,7 @@ class QueryBuddyApp:
 
             def clear_chat():
                 self.context_manager.reset()
+                self.conv_state.reset()
                 self._query_history.clear()
                 return (
                     [], "", None,

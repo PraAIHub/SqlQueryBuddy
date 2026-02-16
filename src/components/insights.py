@@ -137,15 +137,41 @@ Be specific, cite numbers from the data, and keep each bullet to 1-2 sentences."
 
     @staticmethod
     def _summarize_results(results: List[Dict[str, Any]]) -> str:
-        """Create a summary of results"""
+        """Create a summary of results with basic stats for grounding."""
         if not results:
             return "No results"
 
-        summary_lines = [f"Total records: {len(results)}", "Columns:", ""]
+        summary_lines = [f"Total records: {len(results)}", "Columns:"]
 
-        if results:
-            for key in results[0].keys():
+        for key in results[0].keys():
+            values = [r.get(key) for r in results if r.get(key) is not None]
+            if not values:
                 summary_lines.append(f"  - {key}")
+                continue
+
+            # Numeric stats
+            numeric_vals = [v for v in values if isinstance(v, (int, float))]
+            if numeric_vals:
+                total = sum(numeric_vals)
+                summary_lines.append(
+                    f"  - {key} (numeric): min={min(numeric_vals):,.2f}, "
+                    f"max={max(numeric_vals):,.2f}, total={total:,.2f}, "
+                    f"avg={total / len(numeric_vals):,.2f}"
+                )
+            else:
+                # Categorical stats
+                str_vals = [str(v) for v in values]
+                unique = set(str_vals)
+                if len(unique) <= 10:
+                    summary_lines.append(
+                        f"  - {key} (categorical): {len(unique)} unique values: "
+                        f"{', '.join(sorted(unique)[:5])}"
+                        + (f" ... (+{len(unique)-5} more)" if len(unique) > 5 else "")
+                    )
+                else:
+                    summary_lines.append(
+                        f"  - {key} (text): {len(unique)} unique values"
+                    )
 
         return "\n".join(summary_lines)
 
