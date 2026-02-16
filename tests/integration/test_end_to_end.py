@@ -254,6 +254,57 @@ class TestEndToEnd:
         assert "category" in row
         assert "variance" in row
 
+    def test_share_by_region_returns_nonzero_percent(self, temp_db):
+        """Share-of-revenue query must produce non-zero percentages."""
+        db = DatabaseConnection(temp_db)
+        executor = QueryExecutor(db)
+        mock = SQLGeneratorMock()
+
+        result = mock.generate("Show share of total revenue by region", "")
+        assert result["success"]
+        exec_result = executor.execute(result["generated_sql"])
+        assert exec_result["success"], (
+            f"SQL error: {exec_result.get('error')}\nSQL: {result['generated_sql']}"
+        )
+        assert exec_result["row_count"] > 0
+        for row in exec_result["data"]:
+            pct = row.get("share_of_total_revenue", 0)
+            assert float(pct) > 0, f"Region {row.get('region')} has 0% share"
+
+    def test_share_by_category_returns_nonzero_percent(self, temp_db):
+        """Category share query must produce non-zero percentages."""
+        db = DatabaseConnection(temp_db)
+        executor = QueryExecutor(db)
+        mock = SQLGeneratorMock()
+
+        result = mock.generate(
+            "What percentage of revenue comes from each category?", ""
+        )
+        assert result["success"]
+        exec_result = executor.execute(result["generated_sql"])
+        assert exec_result["success"], (
+            f"SQL error: {exec_result.get('error')}\nSQL: {result['generated_sql']}"
+        )
+        assert exec_result["row_count"] > 0
+        total_pct = sum(
+            float(r.get("share_of_total_revenue", 0))
+            for r in exec_result["data"]
+        )
+        assert 99.0 < total_pct < 101.0, (
+            f"Category percentages should sum to ~100, got {total_pct}"
+        )
+
+    def test_divide_by_zero_returns_zero_not_error(self, temp_db):
+        """CASE WHEN guard must return 0 when denominator is 0."""
+        db = DatabaseConnection(temp_db)
+        sql = (
+            "SELECT CASE WHEN 0 = 0 THEN 0 "
+            "ELSE ROUND(42 * 100.0 / 0, 2) END AS pct"
+        )
+        result = db.execute_query(sql)
+        assert result["success"]
+        assert result["rows"][0]["pct"] == 0
+
     def test_rag_with_real_schema(self, temp_db):
         """Test RAG pipeline with actual database schema."""
         from src.components.rag_system import RAGSystem, FAISSVectorDB, SimpleEmbeddingProvider

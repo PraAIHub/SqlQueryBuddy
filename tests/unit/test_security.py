@@ -415,10 +415,7 @@ class TestMockSharePatterns:
         )
         assert result["success"]
         sql = result["generated_sql"]
-        # Must use CTE, not double-count
         assert "share_of_total_revenue" in sql.lower() or "share" in sql.lower()
-        # Must NOT join orders + order_items and SUM(o.total_amount) in same scope
-        # (the pattern uses CTE to avoid this)
 
     def test_share_by_category_pattern(self):
         mock = SQLGeneratorMock()
@@ -440,6 +437,38 @@ class TestMockSharePatterns:
         sql = result["generated_sql"]
         assert "top10_share_percent" in sql.lower()
         assert "is_over_40" in sql.lower()
+
+    def test_share_queries_multiply_before_divide(self):
+        """All share mock SQL must use '* 100.0 /' not '/ ... * 100'."""
+        mock = SQLGeneratorMock()
+        share_queries = [
+            "Show share of total revenue by region",
+            "What percentage of revenue comes from each category?",
+            "Do the top 10 customers account for more than 40% of revenue?",
+        ]
+        for q in share_queries:
+            sql = mock.generate(q, "")["generated_sql"]
+            assert "* 100.0 /" in sql, (
+                f"Wrong division order in: {q}\nSQL: {sql}"
+            )
+            # Should NOT have the bad pattern: / <something> * 100
+            import re
+            bad = re.search(r"/\s*\w+\.\w+\s*\*\s*100", sql)
+            assert bad is None, f"Bad division order found: {bad.group()} in {q}"
+
+    def test_share_queries_have_divide_by_zero_guard(self):
+        """All share mock SQL must guard against division by zero."""
+        mock = SQLGeneratorMock()
+        share_queries = [
+            "Show share of total revenue by region",
+            "What percentage of revenue comes from each category?",
+            "Do the top 10 customers account for more than 40% of revenue?",
+        ]
+        for q in share_queries:
+            sql = mock.generate(q, "")["generated_sql"].lower()
+            assert "case when" in sql and "grand_total" in sql, (
+                f"Missing divide-by-zero guard in: {q}"
+            )
 
     def test_volatility_pattern(self):
         mock = SQLGeneratorMock()
