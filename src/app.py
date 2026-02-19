@@ -579,8 +579,8 @@ class QueryBuddyApp:
 
     def process_query(
         self, user_message: str, chat_history: list, session_state: dict = None
-    ) -> Tuple[str, list, Optional[matplotlib.figure.Figure], str, str, str, str, str, str, dict]:
-        """Process user query and return response, chart, insights, history, RAG context, SQL, filters, agent loop HTML, and session state"""
+    ) -> Tuple[str, list, Optional[matplotlib.figure.Figure], str, str, str, str, str, str, str, dict]:
+        """Process user query and return response, chart, insights, history, RAG context, SQL, SQL explanation, filters, agent loop HTML, and session state"""
         # Initialize agent loop state tracking
         loop_state = {
             "user_query": {"completed": False, "duration_ms": 0},
@@ -597,7 +597,7 @@ class QueryBuddyApp:
 
         # Validate empty input
         if not user_message or not user_message.strip():
-            return "", chat_history, None, "", self._format_history(session_state), "", "", "", "", session_state
+            return "", chat_history, None, "", self._format_history(session_state), "", "", "", "", "", session_state
 
         user_message = user_message.strip()
 
@@ -620,7 +620,7 @@ class QueryBuddyApp:
             chat_history.append({"role": "user", "content": user_message[:100] + "..."})
             chat_history.append({"role": "assistant", "content": error_response})
             agent_loop_html = self._generate_agent_loop_html(loop_state)
-            return "", chat_history, None, "", self._format_history(), "", "", "", agent_loop_html, session_state
+            return "", chat_history, None, "", self._format_history(), "", "", "", "", agent_loop_html, session_state
 
         # Block multi-statement injection attempts in user input
         # (semicolon immediately followed by a dangerous SQL keyword)
@@ -636,7 +636,7 @@ class QueryBuddyApp:
             chat_history.append({"role": "user", "content": user_message})
             chat_history.append({"role": "assistant", "content": error_response})
             agent_loop_html = self._generate_agent_loop_html(loop_state)
-            return "", chat_history, None, "", self._format_history(), "", "", "", agent_loop_html, session_state
+            return "", chat_history, None, "", self._format_history(), "", "", "", "", agent_loop_html, session_state
 
         try:
             # Resolve pronoun/reference expressions using conversation state
@@ -748,7 +748,7 @@ class QueryBuddyApp:
                     chat_history.append({"role": "user", "content": user_message})
                     chat_history.append({"role": "assistant", "content": error_msg})
                     agent_loop_html = self._generate_agent_loop_html(loop_state)
-                    return "", chat_history, None, "", self._format_history(), "", "", "", agent_loop_html, session_state
+                    return "", chat_history, None, "", self._format_history(), "", "", "", "", agent_loop_html, session_state
 
                 # APP_MODE=auto: fallback to mock generator with visible banner
                 self._auto_fallback_active = True
@@ -766,7 +766,7 @@ class QueryBuddyApp:
                 chat_history.append({"role": "user", "content": user_message})
                 chat_history.append({"role": "assistant", "content": response})
                 agent_loop_html = self._generate_agent_loop_html(loop_state)
-                return "", chat_history, None, "", self._format_history(), "", "", "", agent_loop_html, session_state
+                return "", chat_history, None, "", self._format_history(), "", "", "", "", agent_loop_html, session_state
 
             generated_sql = result.get("generated_sql", "")
 
@@ -808,7 +808,7 @@ class QueryBuddyApp:
                 chat_history.append({"role": "user", "content": user_message})
                 chat_history.append({"role": "assistant", "content": response})
                 agent_loop_html = self._generate_agent_loop_html(loop_state)
-                return "", chat_history, None, "", self._format_history(), "", "", "", agent_loop_html, session_state
+                return "", chat_history, None, "", self._format_history(), "", "", "", "", agent_loop_html, session_state
 
             # Auto-LIMIT unbounded SELECT queries to prevent full table scans
             generated_sql = self.optimizer.auto_limit_sql(generated_sql)
@@ -886,7 +886,7 @@ class QueryBuddyApp:
                         round(exec_ms),
                     )
                     agent_loop_html = self._generate_agent_loop_html(loop_state)
-                    return "", chat_history, None, "", self._format_history(), rag_context, generated_sql, "", agent_loop_html, session_state
+                    return "", chat_history, None, "", self._format_history(), rag_context, generated_sql, "", "", agent_loop_html, session_state
 
             # Track successful query
             self._stats["successful_queries"] += 1
@@ -1098,7 +1098,17 @@ class QueryBuddyApp:
             # Generate agent loop visualization
             agent_loop_html = self._generate_agent_loop_html(loop_state)
 
-            return "", chat_history, chart, insights_md, self._format_history(), rag_display, generated_sql, filter_md, agent_loop_html, session_state
+            # Format SQL explanation as a prominent callout
+            sql_explanation_text = result.get('explanation', '')
+            if sql_explanation_text:
+                sql_explanation_md = (
+                    f"**📝 What This Query Does:**\n\n"
+                    f"> {sql_explanation_text}"
+                )
+            else:
+                sql_explanation_md = ""
+
+            return "", chat_history, chart, insights_md, self._format_history(), rag_display, generated_sql, sql_explanation_md, filter_md, agent_loop_html, session_state
 
         except Exception as e:
             logger.exception("Unexpected error in process_query")
@@ -1134,7 +1144,7 @@ class QueryBuddyApp:
             chat_history.append({"role": "user", "content": user_message})
             chat_history.append({"role": "assistant", "content": error_response})
             agent_loop_html = self._generate_agent_loop_html(loop_state)
-            return "", chat_history, None, "", self._format_history(), "", "", "", agent_loop_html, session_state
+            return "", chat_history, None, "", self._format_history(), "", "", "", "", agent_loop_html, session_state
 
     @staticmethod
     def _format_schema(schema: dict) -> str:
@@ -1645,6 +1655,13 @@ class QueryBuddyApp:
 
                             with gr.Accordion("🔍 SQL Query", open=True):
                                 sql_empty = gr.HTML(value=SQL_EMPTY_HTML)
+
+                                # SQL Explanation callout (prominent)
+                                sql_explanation = gr.Markdown(
+                                    value="",
+                                    visible=False,
+                                )
+
                                 sql_output = gr.Code(
                                     label="Generated SQL",
                                     language="sql",
@@ -1887,8 +1904,8 @@ class QueryBuddyApp:
                 _has_sql = bool(results[6])
 
                 # Return results + empty states + buttons + dashboard + scroll + session_state
-                # results[0:9] = msg through agent_loop_html, results[9] = session_state
-                return list(results[0:9]) + [
+                # results[0:10] = msg through agent_loop_html, results[10] = session_state
+                return list(results[0:10]) + [
                     "" if _has_chart else RESULTS_EMPTY_HTML,  # results_empty
                     "" if _has_sql else SQL_EMPTY_HTML,        # sql_empty
                     gr.update(interactive=True),   # submit_btn
@@ -1904,13 +1921,13 @@ class QueryBuddyApp:
                     gr.update(interactive=True),   # ex8
                     self._build_dashboard_overview(),  # dashboard_view
                     scroll_timestamp,  # scroll_trigger - triggers JS on change
-                    results[9],  # session_state at the end
+                    results[10],  # session_state at the end
                 ]
 
             # All outputs including empty states, button states, dashboard, filters, scroll trigger, and session state
             query_outputs = [
                 msg, chatbot, chart_output, insights_output,
-                history_output, rag_output, sql_output, filter_section, agent_loop_output,
+                history_output, rag_output, sql_output, sql_explanation, filter_section, agent_loop_output,
                 results_empty, sql_empty,
                 submit_btn, export_btn, clear, ex1, ex2, ex3, ex4, ex5, ex6, ex7, ex8, dashboard_view,
                 scroll_trigger, session_state
@@ -2017,6 +2034,7 @@ class QueryBuddyApp:
                     EMPTY_HISTORY,
                     EMPTY_CONTEXT,
                     "",
+                    "",  # sql_explanation (cleared)
                     "",  # filter_section
                     "",  # agent_loop_output (cleared)
                     RESULTS_EMPTY_HTML,  # results_empty restored
@@ -2024,7 +2042,7 @@ class QueryBuddyApp:
                     self.create_session_state(),  # Create fresh session state
                 )
 
-            clear.click(clear_chat, outputs=[chatbot, msg, chart_output, insights_output, history_output, rag_output, sql_output, filter_section, agent_loop_output, results_empty, sql_empty, session_state])
+            clear.click(clear_chat, outputs=[chatbot, msg, chart_output, insights_output, history_output, rag_output, sql_output, sql_explanation, filter_section, agent_loop_output, results_empty, sql_empty, session_state])
 
             # Dashboard refresh button
             refresh_dashboard.click(
@@ -2063,9 +2081,9 @@ class QueryBuddyApp:
                 _has_sql = bool(results[6])
 
                 # Return results + empty states + re-enable all buttons + dashboard + scroll trigger + session_state
-                # results[0]=msg, [1]=chatbot, [2]=chart, [3]=insights, [4]=history, [5]=rag, [6]=sql, [7]=filter, [8]=agent_loop, [9]=session_state
+                # results[0]=msg, [1]=chatbot, [2]=chart, [3]=insights, [4]=history, [5]=rag, [6]=sql, [7]=sql_explanation, [8]=filter, [9]=agent_loop, [10]=session_state
                 # Clear textbox (query already visible in chat history)
-                return [gr.update(value="", interactive=True)] + list(results[1:9]) + [
+                return [gr.update(value="", interactive=True)] + list(results[1:10]) + [
                     "" if _has_chart else RESULTS_EMPTY_HTML,  # results_empty
                     "" if _has_sql else SQL_EMPTY_HTML,        # sql_empty
                     gr.update(interactive=True),   # submit_btn
@@ -2081,7 +2099,7 @@ class QueryBuddyApp:
                     gr.update(interactive=True),   # ex8
                     self._build_dashboard_overview(),  # dashboard_view
                     scroll_timestamp,  # scroll_trigger
-                    results[9],  # session_state at the end
+                    results[10],  # session_state at the end
                 ]
 
             example_queries = {
