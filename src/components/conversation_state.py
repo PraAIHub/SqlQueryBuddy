@@ -195,6 +195,13 @@ _CATEGORY_REFS = re.compile(
 _RANK_1_REF = re.compile(r"(?<!\w)(?:#1|the (?:top|first|#1))(?!\s*\d)(?!\w)", re.IGNORECASE)
 _RANK_2_REF = re.compile(r"(?<!\w)(?:#2|the second|the (?:#2|runner.?up))(?!\w)", re.IGNORECASE)
 _THIS_YEAR_REF = re.compile(r"\b(?:this year|the year|same year)\b", re.IGNORECASE)
+# Queries asking for a computed gap/ranking — skip #1/#2 substitution so the
+# LLM writes a proper RANK() OVER CTE instead of hardcoding known names.
+_GAP_QUERY_RE = re.compile(
+    r"\b(?:gap|difference|higher|how much (?:more|higher)|compare|vs\.?|versus|"
+    r"how much is it|how much does|rank(?:ing)?)\b",
+    re.IGNORECASE,
+)
 
 
 def resolve_references(
@@ -242,17 +249,20 @@ def resolve_references(
             changes.append(f"category→{top_cat}")
 
     # "#1" → rank_1_value, "#2" → rank_2_value
-    if _RANK_2_REF.search(resolved):
-        val = state.computed_entities.get("rank_2_value")
-        if val:
-            resolved = _RANK_2_REF.sub(str(val), resolved)
-            changes.append(f"#2→{val}")
+    # Skip substitution for gap/difference queries — let the LLM compute
+    # the ranking dynamically with RANK() OVER instead of hardcoding names.
+    if not _GAP_QUERY_RE.search(resolved):
+        if _RANK_2_REF.search(resolved):
+            val = state.computed_entities.get("rank_2_value")
+            if val:
+                resolved = _RANK_2_REF.sub(str(val), resolved)
+                changes.append(f"#2→{val}")
 
-    if _RANK_1_REF.search(resolved):
-        val = state.computed_entities.get("rank_1_value")
-        if val:
-            resolved = _RANK_1_REF.sub(str(val), resolved)
-            changes.append(f"#1→{val}")
+        if _RANK_1_REF.search(resolved):
+            val = state.computed_entities.get("rank_1_value")
+            if val:
+                resolved = _RANK_1_REF.sub(str(val), resolved)
+                changes.append(f"#1→{val}")
 
     # "this year" → last_time_range
     if _THIS_YEAR_REF.search(resolved):

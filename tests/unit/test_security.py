@@ -230,10 +230,13 @@ class TestConversationStateContext:
         assert state.computed_entities["rank_2_value"] == "California"
         assert state.filters_applied.get("region") == "New York"
 
-        # Turn 2: resolve "#1" and "#2"
+        # Turn 2: gap/compare queries skip #1/#2 substitution so the LLM
+        # computes the ranking dynamically with RANK() OVER instead of hardcoding names.
         resolved = resolve_references("Compare #1 vs #2 region", state)
-        assert "New York" in resolved
-        assert "California" in resolved
+        assert "#1" in resolved  # NOT substituted — LLM must compute rank
+        assert "#2" in resolved
+        assert "New York" not in resolved
+        assert "California" not in resolved
 
         # Turn 3: restrict to 2024 (year regex requires "for|in|of|during" prefix)
         state.update_from_results(
