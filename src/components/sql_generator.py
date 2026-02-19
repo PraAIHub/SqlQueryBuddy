@@ -1124,6 +1124,8 @@ class SQLGeneratorMock:
         # Pronoun-only percent phrases (avoids matching "what percentage of revenue" standalone queries)
         "do they represent", "do those represent", "they account for",
         "from them", "for them", "in them",
+        # Drill-down via resolved pronoun ("of the California region, who are...")
+        "of the",
     ]
 
     # Map of filter keywords to SQL WHERE conditions
@@ -1241,9 +1243,14 @@ class SQLGeneratorMock:
 
         where_clause = " AND ".join(conditions)
 
-        # Detect LIMIT from previous SQL to re-apply it in follow-up
+        # Explicit "top N" in this query takes priority over the previous LIMIT
+        _topn_match = re.search(r"\btop\s+(\d+)\b", user_query, re.IGNORECASE)
         _limit_match = re.search(r"\bLIMIT\s+(\d+)", self._last_sql, re.IGNORECASE)
-        _prev_limit = int(_limit_match.group(1)) if _limit_match else None
+        _prev_limit = (
+            int(_topn_match.group(1)) if _topn_match
+            else int(_limit_match.group(1)) if _limit_match
+            else None
+        )
         _limit_clause = f" LIMIT {_prev_limit};" if _prev_limit else ";"
 
         # For region/name filters on a customers query, build a fresh query
