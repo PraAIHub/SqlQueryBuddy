@@ -73,11 +73,16 @@ class SQLPromptBuilder:
         "   - Use date('now', '-3 months') instead of DATE_SUB/INTERVAL\n"
         "   - Use strftime('%Y', col) instead of EXTRACT(YEAR FROM col)\n"
         "   - Use strftime('%m', col) instead of EXTRACT(MONTH FROM col)\n"
-        "4. CONTEXT RETENTION: If the user references previous results "
-        "(e.g., 'from the previous', 'filter those', 'now show only', "
-        "'of them', 'from that'), you MUST modify the SQL from the "
-        "conversation history. Add WHERE clauses or wrap it as a subquery "
-        "to apply the requested filter. Do NOT repeat the original query.\n"
+        "4. CONTEXT RETENTION (CRITICAL FOR FOLLOW-UPS): If the user references previous results "
+        "(e.g., 'now only include California', 'filter those', 'what percent do they represent', "
+        "'of them', 'from that', 'now show only'), you MUST build on the previous SQL. "
+        "NEVER generate a new unrelated query. Instead:\n"
+        "   a) Take the previous SQL and wrap it as a subquery or CTE\n"
+        "   b) Add the new filter/calculation on top\n"
+        "   Example: User: 'Top 5 customers' → Then: 'Now California only'\n"
+        "   WRONG: SELECT * FROM customers WHERE region = 'California'\n"
+        "   CORRECT: SELECT * FROM (previous_top_5_sql) WHERE region = 'California'\n"
+        "   The follow-up MUST preserve the previous query's logic (top 5, ordering, etc.)\n"
         "5. CRITICAL - Customers with no recent orders pattern:\n"
         "   CORRECT: SELECT c.* FROM customers c WHERE c.customer_id NOT IN "
         "(SELECT customer_id FROM orders WHERE order_date >= date('now', '-3 months'))\n"
@@ -825,6 +830,11 @@ class SQLGeneratorMock:
         "of those", "of them", "among them", "among those",
         "refine", "drill down", "zoom in",
         "restrict to", "do they", "they represent", "these represent", "those represent",
+        # Additional follow-up indicators (contest improvement)
+        "now only", "now include", "only include", "just show", "keep only",
+        "now filter", "just include", "limit to", "limit them", "restrict them",
+        "what percent", "what share", "how much", "what portion",
+        "from them", "for them", "in them",
     ]
 
     # Map of filter keywords to SQL WHERE conditions
