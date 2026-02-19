@@ -1857,7 +1857,7 @@ class QueryBuddyApp:
                             gr.Markdown("**💡 Quick Start:**")
                             with gr.Row():
                                 demo_btn = gr.Button(
-                                    "🎬 Run Demo (3-step context walkthrough)",
+                                    "🎬 Run Demo (7-step full walkthrough)",
                                     variant="primary", size="sm",
                                 )
                             with gr.Row():
@@ -2402,12 +2402,16 @@ class QueryBuddyApp:
             example_outputs = [msg] + query_outputs[1:]
 
             # ------------------------------------------------------------------
-            # 🎬 Demo Walkthrough: fires 3 queries in sequence to show regional
-            # aggregation, ranking comparison, and pronoun-resolved drill-down.
+            # 🎬 Demo Walkthrough: fires 7 queries covering customer context retention,
+            # pronoun resolution, monthly trend, and regional drill-down.
             # ------------------------------------------------------------------
             def run_demo_walkthrough(chat_history, session_state):
-                """Generator: runs regional sales → #1 vs #2 gap → top 3 drill-down."""
+                """Generator: full demo chain — customer context → monthly trend → region drill-down."""
                 DEMO_QUERIES = [
+                    "Show me the top 5 customers by total purchase amount",
+                    "Now only include California",
+                    "What percent of total revenue do they represent?",
+                    "Show a monthly revenue trend for the last 12 months",
                     "Show total sales per region",
                     "Which region is #1, and how much higher is it than #2?",
                     "Of that region, who are the top 3 customers?",
