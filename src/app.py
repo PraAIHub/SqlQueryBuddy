@@ -807,11 +807,12 @@ class QueryBuddyApp:
 
             # ---------------------------------------------------------------
             # DML intent check: reject data-modification requests immediately
-            # (before wasting an LLM call)
+            # (before wasting an LLM call). Uses broad word-level match so
+            # "Delete all records from orders" is caught, not just "DELETE FROM".
             # ---------------------------------------------------------------
             _DML_INTENT_RE = re.compile(
-                r"\b(delete\s+from|update\s+\w|insert\s+into|drop\s+table|"
-                r"truncate\s+table|alter\s+table|create\s+table)\b",
+                r"\b(delete|drop\s+(?:table|database|index|view)|truncate|"
+                r"insert\s+into|update\s+\w+\s+set|alter\s+table)\b",
                 re.IGNORECASE,
             )
             if _DML_INTENT_RE.search(user_message):
@@ -824,6 +825,33 @@ class QueryBuddyApp:
                 )
                 chat_history.append({"role": "user", "content": user_message})
                 chat_history.append({"role": "assistant", "content": dml_response})
+                agent_loop_html = self._generate_agent_loop_html(loop_state)
+                return "", chat_history, None, "", self._format_history(), "", "", "", "", agent_loop_html, session_state
+
+            # ---------------------------------------------------------------
+            # Off-topic check: reject non-database questions before LLM call.
+            # Works in BOTH mock and real-LLM mode.
+            # Uses focused business/DB vocabulary to avoid false positives.
+            # ---------------------------------------------------------------
+            _DB_QUERY_RE = re.compile(
+                r"\b(?:customer|order|product|revenue|sales|amount|category|region|"
+                r"spend|purchase|profit|price|item|invoice|records?|report|"
+                r"percent|share|rank|filter|"
+                r"california|new\s+york|texas|electronics|furniture|accessories|"
+                r"average|total\s+(?:revenue|sales|amount|orders|spent)|"
+                r"top\s+\d+|how many|how much|monthly|yearly|weekly|quarterly|"
+                r"trend|chart|graph|compare|segment|cohort|conversion|retention|"
+                r"signup|churn|aov|clv)\b",
+                re.IGNORECASE,
+            )
+            if not _DB_QUERY_RE.search(user_message):
+                offtopic_response = (
+                    "**Out of Scope:** I can only answer questions about the sales database. "
+                    "Please ask about customers, orders, products, revenue, or related topics.\n\n"
+                    "Try: *'Show me revenue by region'* or *'Top 5 customers by spending'*"
+                )
+                chat_history.append({"role": "user", "content": user_message})
+                chat_history.append({"role": "assistant", "content": offtopic_response})
                 agent_loop_html = self._generate_agent_loop_html(loop_state)
                 return "", chat_history, None, "", self._format_history(), "", "", "", "", agent_loop_html, session_state
 
