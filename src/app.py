@@ -1856,6 +1856,11 @@ class QueryBuddyApp:
                             # Example query chips (at bottom)
                             gr.Markdown("**💡 Quick Start:**")
                             with gr.Row():
+                                demo_btn = gr.Button(
+                                    "🎬 Run Demo (3-step context walkthrough)",
+                                    variant="primary", size="sm",
+                                )
+                            with gr.Row():
                                 ex1 = gr.Button("Top customers", size="sm", elem_classes="quick-start-btn")
                                 ex2 = gr.Button("Revenue by category", size="sm", elem_classes="quick-start-btn")
                                 ex3 = gr.Button("Sales per region", size="sm", elem_classes="quick-start-btn")
@@ -1879,20 +1884,29 @@ class QueryBuddyApp:
 
                             # Empty-state HTML (dynamic — hidden once data arrives)
                             RESULTS_EMPTY_HTML = """
-<div style='text-align: center; padding: 48px 24px; color: #9ca3af;'>
-    <div style='font-size: 40px; margin-bottom: 8px; opacity: 0.5;'>📊</div>
-    <div style='font-size: 15px; font-weight: 600; color: #6b7280; margin-bottom: 6px;'>No results yet</div>
-    <div style='font-size: 13px; line-height: 1.6; max-width: 320px; margin: 0 auto;'>
-        Run a query to see charts here.<br>
-        Time series, bar charts, and single-value cards render automatically.
+<div style='text-align: center; padding: 32px 24px; color: #9ca3af;'>
+    <div style='font-size: 36px; margin-bottom: 8px; opacity: 0.5;'>📊</div>
+    <div style='font-size: 14px; font-weight: 600; color: #6b7280; margin-bottom: 6px;'>
+        Click <em>🎬 Run Demo</em> above or type a question to get started
+    </div>
+    <div style='font-size: 12px; line-height: 1.8; color: #9ca3af; max-width: 320px; margin: 0 auto;'>
+        Auto-renders: <strong>line charts</strong> for monthly trends ·
+        <strong>bar charts</strong> for rankings ·
+        <strong>value cards</strong> for single metrics
     </div>
 </div>"""
                             SQL_EMPTY_HTML = """
-<div style='text-align: center; padding: 32px 24px; color: #9ca3af;'>
-    <div style='font-size: 40px; margin-bottom: 8px; opacity: 0.5;'>🔍</div>
-    <div style='font-size: 15px; font-weight: 600; color: #6b7280; margin-bottom: 6px;'>No SQL generated yet</div>
-    <div style='font-size: 13px; max-width: 300px; margin: 0 auto;'>
-        Your optimized SQL query will appear here after you ask a question.
+<div style='text-align: center; padding: 24px; color: #9ca3af;'>
+    <div style='font-size: 32px; margin-bottom: 6px; opacity: 0.5;'>🔍</div>
+    <div style='font-size: 13px; font-weight: 600; color: #6b7280; margin-bottom: 8px;'>Generated SQL will appear here</div>
+    <div style='background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 6px; padding: 10px;
+                text-align: left; font-size: 11px; font-family: monospace; color: #6b7280;
+                max-width: 400px; margin: 0 auto;'>
+        SELECT c.name, SUM(o.total_amount) AS total_spent<br>
+        FROM customers c<br>
+        JOIN orders o ON c.customer_id = o.customer_id<br>
+        GROUP BY c.customer_id<br>
+        ORDER BY total_spent DESC LIMIT 5;
     </div>
 </div>"""
 
@@ -1934,18 +1948,25 @@ class QueryBuddyApp:
                             with gr.Accordion("💡 AI Insights", open=True):
                                 insights_output = gr.HTML(
                                     value="""
-<div style='text-align: center; padding: 48px 24px; color: #9ca3af;'>
-    <div style='font-size: 40px; margin-bottom: 8px; opacity: 0.5;'>💡</div>
-    <div style='font-size: 15px; font-weight: 600; color: #6b7280; margin-bottom: 6px;'>No insights yet</div>
-    <div style='font-size: 13px; line-height: 1.6; max-width: 320px; margin: 0 auto;'>
-        Run a query to get AI-generated analysis.<br>
-        Trends, anomalies, key metrics, and recommendations.
+<div style='padding: 16px 20px; color: #9ca3af;'>
+    <div style='font-size: 13px; font-weight: 600; color: #6b7280; margin-bottom: 10px; text-align: center;'>
+        AI-generated insights will appear here after each query
+    </div>
+    <div style='background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 8px; padding: 14px;
+                font-size: 12px; color: #6b7280; line-height: 1.7;'>
+        <div style='font-weight: 600; color: #9ca3af; margin-bottom: 6px;'>Example output:</div>
+        <div><strong style='color:#374151;'>Key Takeaway</strong><br>
+        Alice Chen leads with $12,450 revenue — 8.3% of total sales. Top 5 customers
+        together represent 34% of all revenue, signalling moderate concentration risk.</div>
+        <div style='margin-top: 8px;'><strong style='color:#374151;'>Recommendations</strong><br>
+        • <strong>Retention risk</strong>: Alice Chen contributes 8.3% — target with loyalty programme.<br>
+        • <strong>Growth opportunity</strong>: Bottom performers average $3,200 — run win-back campaign.</div>
     </div>
 </div>
                                     """,
                                 )
 
-                            with gr.Accordion("🎯 RAG Context", open=False):
+                            with gr.Accordion("🎯 RAG Context", open=True):
                                 rag_output = gr.Markdown(
                                     value="""
 <div style='text-align: center; padding: 48px 24px; color: #9ca3af;'>
@@ -2253,12 +2274,19 @@ class QueryBuddyApp:
 
             # Empty state HTML cards (reused in clear_chat)
             EMPTY_INSIGHTS = """
-<div style='text-align: center; padding: 48px 24px; color: #9ca3af;'>
-    <div style='font-size: 40px; margin-bottom: 8px; opacity: 0.5;'>💡</div>
-    <div style='font-size: 15px; font-weight: 600; color: #6b7280; margin-bottom: 6px;'>No insights yet</div>
-    <div style='font-size: 13px; line-height: 1.6; max-width: 320px; margin: 0 auto;'>
-        Run a query to get AI-generated analysis.<br>
-        Trends, anomalies, key metrics, and recommendations.
+<div style='padding: 16px 20px; color: #9ca3af;'>
+    <div style='font-size: 13px; font-weight: 600; color: #6b7280; margin-bottom: 10px; text-align: center;'>
+        AI-generated insights will appear here after each query
+    </div>
+    <div style='background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 8px; padding: 14px;
+                font-size: 12px; color: #6b7280; line-height: 1.7;'>
+        <div style='font-weight: 600; color: #9ca3af; margin-bottom: 6px;'>Example output:</div>
+        <div><strong style='color:#374151;'>Key Takeaway</strong><br>
+        Alice Chen leads with $12,450 revenue — 8.3% of total sales. Top 5 customers
+        together represent 34% of all revenue, signalling moderate concentration risk.</div>
+        <div style='margin-top: 8px;'><strong style='color:#374151;'>Recommendations</strong><br>
+        • <strong>Retention risk</strong>: Alice Chen contributes 8.3% — target with loyalty programme.<br>
+        • <strong>Growth opportunity</strong>: Bottom performers average $3,200 — run win-back campaign.</div>
     </div>
 </div>
 """
@@ -2372,6 +2400,94 @@ class QueryBuddyApp:
             # Outputs: textbox first, then all query outputs EXCEPT msg (which is already first)
             # query_outputs[0] is msg, so skip it to avoid duplicate
             example_outputs = [msg] + query_outputs[1:]
+
+            # ------------------------------------------------------------------
+            # 🎬 Demo Walkthrough: fires 3 queries in sequence to show context
+            # retention, pronoun resolution, and % calculation live.
+            # ------------------------------------------------------------------
+            def run_demo_walkthrough(chat_history, session_state):
+                """Generator: runs top-customers → CA filter → % share in sequence."""
+                DEMO_QUERIES = [
+                    "Show me the top 5 customers by total purchase amount",
+                    "Now only include California",
+                    "What percent of total revenue do they represent?",
+                ]
+                current_chat = list(chat_history) if chat_history else []
+                current_session = session_state or self.create_session_state()
+
+                for query in DEMO_QUERIES:
+                    results = self.process_query(query, current_chat, current_session)
+                    current_chat = results[1]
+                    current_session = results[10]
+
+                    _has_chart = results[2] is not None
+                    _has_sql = bool(results[6])
+                    scroll_ts = str(time.time())
+
+                    # Intermediate yield: buttons stay disabled, UI updates per step
+                    yield (
+                        [gr.update(value="", interactive=False)]
+                        + list(results[1:10])
+                        + [
+                            "" if _has_chart else RESULTS_EMPTY_HTML,
+                            "" if _has_sql else SQL_EMPTY_HTML,
+                            gr.update(interactive=False),   # submit_btn
+                            gr.update(interactive=False),   # export_btn
+                            gr.update(interactive=False),   # clear
+                            gr.update(interactive=False),   # ex1
+                            gr.update(interactive=False),   # ex2
+                            gr.update(interactive=False),   # ex3
+                            gr.update(interactive=False),   # ex4
+                            gr.update(interactive=False),   # ex5
+                            gr.update(interactive=False),   # ex6
+                            gr.update(interactive=False),   # ex7
+                            gr.update(interactive=False),   # ex8
+                            self._build_dashboard_overview(),
+                            scroll_ts,
+                            current_session,
+                        ]
+                    )
+
+                # Final yield: re-enable all buttons
+                r = results  # last query results
+                _has_chart = r[2] is not None
+                _has_sql = bool(r[6])
+                yield (
+                    [gr.update(value="", interactive=True)]
+                    + list(r[1:10])
+                    + [
+                        "" if _has_chart else RESULTS_EMPTY_HTML,
+                        "" if _has_sql else SQL_EMPTY_HTML,
+                        gr.update(interactive=True),    # submit_btn
+                        gr.update(interactive=True),    # export_btn
+                        gr.update(interactive=True),    # clear
+                        gr.update(interactive=True),    # ex1
+                        gr.update(interactive=True),    # ex2
+                        gr.update(interactive=True),    # ex3
+                        gr.update(interactive=True),    # ex4
+                        gr.update(interactive=True),    # ex5
+                        gr.update(interactive=True),    # ex6
+                        gr.update(interactive=True),    # ex7
+                        gr.update(interactive=True),    # ex8
+                        self._build_dashboard_overview(),
+                        str(time.time()),
+                        current_session,
+                    ]
+                )
+
+            # Wire demo button: disable self + all_buttons → run generator → re-enable self
+            demo_btn.click(
+                fn=lambda: [gr.update(interactive=False)] * 12,
+                outputs=[demo_btn] + all_buttons,
+                queue=False,
+            ).then(
+                run_demo_walkthrough,
+                inputs=[chatbot, session_state],
+                outputs=example_outputs,
+            ).then(
+                fn=lambda: gr.update(interactive=True),
+                outputs=[demo_btn],
+            )
 
             for btn, query in example_queries.items():
                 # First: Immediately disable ALL buttons when ANY example is clicked
