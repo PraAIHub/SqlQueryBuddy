@@ -407,7 +407,7 @@ class TestCurrencyFormatting:
 
     def test_none_falls_through(self):
         result = QueryBuddyApp._format_cell("total_amount", None)
-        assert result == "None"  # falls through to str(value)
+        assert result == "—"  # None values display as em-dash
 
     def test_non_numeric_string_falls_through(self):
         result = QueryBuddyApp._format_cell("total_amount", "abc")

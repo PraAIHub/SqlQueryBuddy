@@ -75,8 +75,10 @@ class SQLPromptBuilder:
         "   - Use strftime('%m', col) instead of EXTRACT(MONTH FROM col)\n"
         "   - For MONTHLY TRENDS: always use strftime('%Y-%m', order_date) AS month\n"
         "     Example: SELECT strftime('%Y-%m', o.order_date) AS month, SUM(o.total_amount) AS monthly_revenue\n"
-        "     FROM orders o WHERE o.order_date >= date('now', '-12 months')\n"
+        "     FROM orders o WHERE o.order_date >= date('now', 'start of month', '-11 months')\n"
         "     GROUP BY month ORDER BY month;\n"
+        "     IMPORTANT: Use 'start of month', '-11 months' (not '-12 months') to get exactly\n"
+        "     12 complete calendar months. '-12 months' produces 13 rows.\n"
         "   - Always alias the month column as 'month' so the chart renders as a line chart.\n"
         "4. CONTEXT RETENTION (CRITICAL FOR FOLLOW-UPS): If the user references previous results "
         "(e.g., 'now only include California', 'filter those', 'what percent do they represent', "
@@ -110,7 +112,10 @@ class SQLPromptBuilder:
         "unless the user explicitly asks for contact details.\n"
         "9. ROUNDING: Always wrap AVG(), division results, and share percentages "
         "with ROUND(..., 2) so results display as clean decimals.\n"
-        "10. Return ONLY the raw SQL query. No comments, no explanations, "
+        "10. NULL PREVENTION: SUM() on an empty set returns NULL, not 0. "
+        "Always use COALESCE(SUM(...), 0) to ensure numeric columns return 0 when "
+        "there is no matching data. Example: COALESCE(SUM(o.total_amount), 0) AS total_revenue.\n"
+        "11. Return ONLY the raw SQL query. No comments, no explanations, "
         "no markdown. The response must start with SELECT or WITH."
     )
 
@@ -852,6 +857,7 @@ class SQLGeneratorMock:
                 "SUM(total_amount) AS monthly_revenue, "
                 "COUNT(*) AS order_count "
                 "FROM orders "
+                "WHERE order_date >= date('now', 'start of month', '-11 months') "
                 "GROUP BY month "
                 "ORDER BY month;"
             ),
@@ -1499,6 +1505,25 @@ class SQLGeneratorMock:
                 "success": True,
                 "generated_sql": sql,
                 "explanation": best_match["explanation"],
+                "original_query": user_query,
+            }
+
+        # Check if query looks like a genuine database question before falling back
+        _DB_HINTS_RE = re.compile(
+            r"\b(?:customer|order|product|revenue|sales|query|database|table|sql|data|"
+            r"amount|category|region|trend|top|show|list|count|average|total|spend|"
+            r"purchase|profit|price|item|invoice|record|report)\b",
+            re.IGNORECASE,
+        )
+        if not _DB_HINTS_RE.search(user_query):
+            return {
+                "success": False,
+                "error": (
+                    "I can only answer questions about the sales database. "
+                    "Please ask about customers, orders, products, revenue, or related topics."
+                ),
+                "error_category": "off_topic",
+                "generated_sql": "",
                 "original_query": user_query,
             }
 

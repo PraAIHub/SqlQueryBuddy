@@ -1,5 +1,6 @@
 """Insight generation and analysis of query results"""
 import logging
+import re
 import uuid
 from typing import Dict, List, Any, Optional
 
@@ -377,6 +378,35 @@ class LocalInsightGenerator:
         # Identify the "name" column and the primary numeric metric
         name_col = self._find_name_column(query_results)
         numeric_cols = self._get_numeric_columns(query_results)
+
+        # Threshold Yes/No check: detect "more than X%" in user_query
+        # e.g. "Are the top 10 customers responsible for more than 40% of revenue?"
+        _threshold_match = re.search(
+            r"(?:over|more than|greater than|above|exceed|>)\s*(\d+(?:\.\d+)?)\s*%",
+            user_query,
+            re.IGNORECASE,
+        )
+        _topn_match = re.search(r"top\s*(\d+)", user_query, re.IGNORECASE)
+        if _threshold_match and _topn_match and numeric_cols:
+            _threshold_pct = float(_threshold_match.group(1))
+            _n = int(_topn_match.group(1))
+            _primary = numeric_cols[0]
+            _vals = sorted(
+                [r.get(_primary, 0) for r in query_results if isinstance(r.get(_primary), (int, float))],
+                reverse=True,
+            )
+            _total = sum(_vals)
+            if _total > 0 and len(_vals) >= _n:
+                _top_n_sum = sum(_vals[:_n])
+                _actual_pct = (_top_n_sum / _total) * 100
+                _verdict = "Yes" if _actual_pct > _threshold_pct else "No"
+                _compare = "exceeds" if _actual_pct > _threshold_pct else "is below"
+                takeaways.insert(
+                    0,
+                    f"**{_verdict}** — the top {_n} account for **{_actual_pct:.1f}%** "
+                    f"of total {_primary.replace('_', ' ')}, which {_compare} the "
+                    f"{_threshold_pct:.0f}% threshold.",
+                )
 
         # Top performer analysis → takeaways
         if name_col and numeric_cols:

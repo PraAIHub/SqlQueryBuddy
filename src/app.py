@@ -185,6 +185,7 @@ class QueryBuddyApp:
             "context_manager": None,  # Will be initialized on first use
             "last_results": [],
             "last_sql": "",
+            "query_history": [],  # Per-session history for summarize/narrative
         }
 
     def _ensure_session_initialized(self, session_state: dict) -> dict:
@@ -296,6 +297,8 @@ class QueryBuddyApp:
     @staticmethod
     def _format_cell(column_name: str, value) -> str:
         """Format a cell value; apply $X,XXX.XX for currency columns."""
+        if value is None:
+            return "—"
         col_lower = column_name.lower()
         # Exclude count-like columns even if they contain a currency hint word
         if any(ex in col_lower for ex in QueryBuddyApp.CURRENCY_EXCLUDE):
@@ -672,7 +675,9 @@ class QueryBuddyApp:
 
     def _generate_narrative_response(self, user_message: str, session_state: dict) -> str:
         """Generate a text summary/recommendation from session history without SQL."""
-        history = self._query_history[-5:] if self._query_history else []
+        # Prefer per-session history (isolated per user); fall back to instance history
+        _sess_hist = session_state.get("query_history", []) if session_state else []
+        history = (_sess_hist or self._query_history)[-5:]
 
         if not history:
             return (
@@ -799,6 +804,28 @@ class QueryBuddyApp:
                 session_state["conv_state"].computed_entities.pop("top_customer_ids", None)
                 session_state["conv_state"].computed_entities.pop("top_customers", None)
                 # Don't clear region/year filters — those can legitimately carry over
+
+            # ---------------------------------------------------------------
+            # DML intent check: reject data-modification requests immediately
+            # (before wasting an LLM call)
+            # ---------------------------------------------------------------
+            _DML_INTENT_RE = re.compile(
+                r"\b(delete\s+from|update\s+\w|insert\s+into|drop\s+table|"
+                r"truncate\s+table|alter\s+table|create\s+table)\b",
+                re.IGNORECASE,
+            )
+            if _DML_INTENT_RE.search(user_message):
+                dml_response = (
+                    "**Out of Scope:** I only run `SELECT` queries on the sales database. "
+                    "Data modification operations (DELETE, UPDATE, INSERT, DROP, etc.) "
+                    "are not supported for safety reasons.\n\n"
+                    "Try asking something like: *'Show me total revenue by region'* "
+                    "or *'Who are the top 5 customers?'*"
+                )
+                chat_history.append({"role": "user", "content": user_message})
+                chat_history.append({"role": "assistant", "content": dml_response})
+                agent_loop_html = self._generate_agent_loop_html(loop_state)
+                return "", chat_history, None, "", self._format_history(), "", "", "", "", agent_loop_html, session_state
 
             # ---------------------------------------------------------------
             # Meta-intent classifier: detect schema/narrative queries that
@@ -945,10 +972,21 @@ class QueryBuddyApp:
                 )
 
             if not result.get("success", False):
-                response = (
-                    "**Could not generate SQL.** Please try rephrasing your question.\n\n"
-                    "Example: *'Show me the top 5 customers by total purchase amount'*"
-                )
+                _err_cat = result.get("error_category", "")
+                if _err_cat == "off_topic":
+                    response = (
+                        "**Out of Scope:** "
+                        + result.get(
+                            "error",
+                            "I can only answer questions about the sales database.",
+                        )
+                        + "\n\nTry asking: *'Show me revenue by region'* or *'Top 5 customers by spending'*"
+                    )
+                else:
+                    response = (
+                        "**Could not generate SQL.** Please try rephrasing your question.\n\n"
+                        "Example: *'Show me the top 5 customers by total purchase amount'*"
+                    )
                 chat_history.append({"role": "user", "content": user_message})
                 chat_history.append({"role": "assistant", "content": response})
                 agent_loop_html = self._generate_agent_loop_html(loop_state)
@@ -1086,17 +1124,22 @@ class QueryBuddyApp:
             if data:
                 session_state["conv_state"].update_from_results(user_message, generated_sql, data)
             _run_status = "fallback" if self._auto_fallback_active else "success"
-            self._query_history.append({
+            _history_entry = {
                 "query": user_message,
                 "sql": generated_sql,
                 "rows": exec_result.get("row_count", 0),
                 "status": _run_status,
                 "latency_ms": round(exec_ms),
                 "timestamp": time.strftime("%H:%M:%S"),
-            })
-            # Cap history to last 50 entries
+            }
+            self._query_history.append(_history_entry)
+            # Also store in per-session history for summarize/narrative
+            session_state.setdefault("query_history", []).append(_history_entry)
+            # Cap both histories
             if len(self._query_history) > 50:
                 self._query_history = self._query_history[-50:]
+            if len(session_state["query_history"]) > 50:
+                session_state["query_history"] = session_state["query_history"][-50:]
 
             # Format response
             response_lines = []
