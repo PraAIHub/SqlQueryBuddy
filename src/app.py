@@ -1768,8 +1768,9 @@ class QueryBuddyApp:
                 _has_chart = results[2] is not None
                 _has_sql = bool(results[6])
 
-                # Return results + empty states + re-enable buttons + dashboard + scroll
-                return list(results) + [
+                # Return results (excluding session_state) + empty states + buttons + dashboard + scroll + session_state
+                # results[0:8] = msg through filter_section, results[8] = session_state
+                return list(results[0:8]) + [
                     "" if _has_chart else RESULTS_EMPTY_HTML,  # results_empty
                     "" if _has_sql else SQL_EMPTY_HTML,        # sql_empty
                     gr.update(interactive=True),   # submit_btn
@@ -1785,6 +1786,7 @@ class QueryBuddyApp:
                     gr.update(interactive=True),   # ex8
                     self._build_dashboard_overview(),  # dashboard_view
                     scroll_timestamp,  # scroll_trigger - triggers JS on change
+                    results[8],  # session_state at the end
                 ]
 
             # All outputs including empty states, button states, dashboard, filters, scroll trigger, and session state
@@ -1941,10 +1943,10 @@ class QueryBuddyApp:
                 _has_chart = results[2] is not None
                 _has_sql = bool(results[6])
 
-                # Return results + empty states + re-enable all buttons + dashboard + scroll trigger
-                # results[0]=msg, [1]=chatbot, [2]=chart, [3]=insights, [4]=history, [5]=rag, [6]=sql, [7]=filter
+                # Return results + empty states + re-enable all buttons + dashboard + scroll trigger + session_state
+                # results[0]=msg, [1]=chatbot, [2]=chart, [3]=insights, [4]=history, [5]=rag, [6]=sql, [7]=filter, [8]=session_state
                 # Clear textbox (query already visible in chat history)
-                return [gr.update(value="", interactive=True)] + list(results[1:]) + [
+                return [gr.update(value="", interactive=True)] + list(results[1:8]) + [
                     "" if _has_chart else RESULTS_EMPTY_HTML,  # results_empty
                     "" if _has_sql else SQL_EMPTY_HTML,        # sql_empty
                     gr.update(interactive=True),   # submit_btn
@@ -1960,6 +1962,7 @@ class QueryBuddyApp:
                     gr.update(interactive=True),   # ex8
                     self._build_dashboard_overview(),  # dashboard_view
                     scroll_timestamp,  # scroll_trigger
+                    results[8],  # session_state at the end
                 ]
 
             example_queries = {
