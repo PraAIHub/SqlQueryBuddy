@@ -697,11 +697,17 @@ class QueryBuddyApp:
                     f"Referenced entities: {entities_str}"
                 )
 
-            # Append active filters context so LLM carries forward constraints
+            # Append active filters context — advisory only (LLM applies only when relevant)
             _filters_ctx = ""
             if session_state["conv_state"].filters_applied:
-                _filters_ctx = "\n\nActive filters from previous turns: " + ", ".join(
+                _filter_pairs = ", ".join(
                     f"{k}={v}" for k, v in session_state["conv_state"].filters_applied.items()
+                )
+                _filters_ctx = (
+                    f"\n\nPrevious query context: {_filter_pairs}. "
+                    "Apply these ONLY if the user's current question explicitly references "
+                    "the same entities or asks to drill further into the previous results. "
+                    "For new standalone questions, ignore these and query all data."
                 )
 
             # Generate SQL (use resolved_message so references are concrete)

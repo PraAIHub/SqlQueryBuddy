@@ -68,15 +68,25 @@ class ConversationState:
             if col.lower() == "region" and results:
                 # If query asks about "per region" / ranking, store top region
                 if _is_ranking_query(query_lower) or "per region" in query_lower:
-                    top_row = results[0]
+                    # Sort results by the first numeric column descending so #1 = highest
+                    numeric_col = next(
+                        (c for c in columns if c.lower() != "region"
+                         and isinstance(results[0].get(c), (int, float))),
+                        None,
+                    )
+                    sorted_results = (
+                        sorted(results, key=lambda r: r.get(numeric_col, 0), reverse=True)
+                        if numeric_col else results
+                    )
+                    top_row = sorted_results[0]
                     top_region = top_row.get("region", "")
                     self.computed_entities["top_region"] = top_region
                     # Keep filters_applied in sync so follow-ups use the #1 region
                     if top_region:
                         self.filters_applied["region"] = top_region
-                    if len(results) >= 2:
+                    if len(sorted_results) >= 2:
                         self.computed_entities["rank_1_value"] = top_region
-                        self.computed_entities["rank_2_value"] = results[1].get("region", "")
+                        self.computed_entities["rank_2_value"] = sorted_results[1].get("region", "")
                 break
 
         # Detect category
@@ -182,7 +192,7 @@ _CATEGORY_REFS = re.compile(
     r"\b(?:that category|the category|this category|the top category)\b",
     re.IGNORECASE,
 )
-_RANK_1_REF = re.compile(r"(?<!\w)(?:#1|the (?:top|first|#1))(?!\w)", re.IGNORECASE)
+_RANK_1_REF = re.compile(r"(?<!\w)(?:#1|the (?:top|first|#1))(?!\s*\d)(?!\w)", re.IGNORECASE)
 _RANK_2_REF = re.compile(r"(?<!\w)(?:#2|the second|the (?:#2|runner.?up))(?!\w)", re.IGNORECASE)
 _THIS_YEAR_REF = re.compile(r"\b(?:this year|the year|same year)\b", re.IGNORECASE)
 

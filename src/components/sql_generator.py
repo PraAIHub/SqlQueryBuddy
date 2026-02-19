@@ -1261,26 +1261,47 @@ class SQLGeneratorMock:
         if not self._last_sql:
             return None
         base_sql = self._last_sql.rstrip(";").strip()
-        # Skip CTE-based previous queries (can't nest WITH inside WITH)
-        if base_sql.upper().startswith("WITH"):
-            return None
+
         # Find the metric column in the previous SQL
         sql_lower = base_sql.lower()
-        metric_col = None
-        for col in self._METRIC_COLS:
-            if col in sql_lower:
-                metric_col = col
-                break
+        metric_col = next((col for col in self._METRIC_COLS if col in sql_lower), None)
         if not metric_col:
             return None
-        follow_up_sql = (
-            f"WITH cohort AS ({base_sql}), "
-            f"grand AS (SELECT SUM(total_amount) AS grand_total FROM orders) "
-            f"SELECT CASE WHEN g.grand_total = 0 THEN 0 "
-            f"ELSE ROUND(SUM(c.{metric_col}) * 100.0 / g.grand_total, 2) END "
-            f"AS cohort_share_percent "
-            f"FROM cohort c, grand g;"
-        )
+
+        if base_sql.upper().startswith("WITH"):
+            # CTE-based previous query: merge CTEs instead of nesting WITH inside WITH
+            # Find the main SELECT at paren depth 0 (the outer SELECT, not inside a CTE body)
+            depth = 0
+            last_select_pos = 0
+            for i, ch in enumerate(base_sql):
+                if ch == '(':
+                    depth += 1
+                elif ch == ')':
+                    depth -= 1
+                elif depth == 0 and base_sql[i:i + 6].upper() == 'SELECT':
+                    last_select_pos = i
+
+            with_block = base_sql[:last_select_pos].rstrip().rstrip(',')
+            inner_select = base_sql[last_select_pos:].strip()
+
+            follow_up_sql = (
+                f"{with_block}, "
+                f"cohort AS ({inner_select}), "
+                f"grand AS (SELECT SUM(total_amount) AS grand_total FROM orders) "
+                f"SELECT CASE WHEN g.grand_total = 0 THEN 0 "
+                f"ELSE ROUND(SUM(c.{metric_col}) * 100.0 / g.grand_total, 2) END "
+                f"AS cohort_share_percent "
+                f"FROM cohort c, grand g;"
+            )
+        else:
+            follow_up_sql = (
+                f"WITH cohort AS ({base_sql}), "
+                f"grand AS (SELECT SUM(total_amount) AS grand_total FROM orders) "
+                f"SELECT CASE WHEN g.grand_total = 0 THEN 0 "
+                f"ELSE ROUND(SUM(c.{metric_col}) * 100.0 / g.grand_total, 2) END "
+                f"AS cohort_share_percent "
+                f"FROM cohort c, grand g;"
+            )
         return {
             "success": True,
             "generated_sql": follow_up_sql,
