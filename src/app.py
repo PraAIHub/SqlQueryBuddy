@@ -1857,7 +1857,7 @@ class QueryBuddyApp:
                             gr.Markdown("**💡 Quick Start:**")
                             with gr.Row():
                                 demo_btn = gr.Button(
-                                    "🎬 Run Demo (3-step context walkthrough)",
+                                    "🎬 Run Demo (4-step context walkthrough)",
                                     variant="primary", size="sm",
                                 )
                             with gr.Row():
@@ -2402,15 +2402,16 @@ class QueryBuddyApp:
             example_outputs = [msg] + query_outputs[1:]
 
             # ------------------------------------------------------------------
-            # 🎬 Demo Walkthrough: fires 3 queries in sequence to show context
-            # retention, pronoun resolution, and % calculation live.
+            # 🎬 Demo Walkthrough: fires 4 queries in sequence to show context
+            # retention, pronoun resolution, % calculation, and time series live.
             # ------------------------------------------------------------------
             def run_demo_walkthrough(chat_history, session_state):
-                """Generator: runs top-customers → CA filter → % share in sequence."""
+                """Generator: runs top-customers → CA filter → % share → monthly trend."""
                 DEMO_QUERIES = [
                     "Show me the top 5 customers by total purchase amount",
                     "Now only include California",
                     "What percent of total revenue do they represent?",
+                    "Show a monthly revenue trend for the last 12 months",
                 ]
                 current_chat = list(chat_history) if chat_history else []
                 current_session = session_state or self.create_session_state()
