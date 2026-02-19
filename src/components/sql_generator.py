@@ -105,7 +105,12 @@ class SQLPromptBuilder:
         "reject them. Compute variance with the identity: "
         "AVG(col * col) - AVG(col) * AVG(col). "
         "Do NOT use SUM((col - AVG(col)) * (col - AVG(col))).\n"
-        "8. Return ONLY the raw SQL query. No comments, no explanations, "
+        "8. COLUMN SELECTION: Never use SELECT *. Always name the specific columns "
+        "you need. Never include email, phone, password, or other PII columns "
+        "unless the user explicitly asks for contact details.\n"
+        "9. ROUNDING: Always wrap AVG(), division results, and share percentages "
+        "with ROUND(..., 2) so results display as clean decimals.\n"
+        "10. Return ONLY the raw SQL query. No comments, no explanations, "
         "no markdown. The response must start with SELECT or WITH."
     )
 
@@ -561,8 +566,36 @@ class SQLGenerator:
         ])
 
         if is_percent_query:
-            # Use CTE: cohort revenue / grand total revenue
-            pattern_instruction = f"""MANDATORY APPROACH FOR PERCENTAGE/SHARE QUERIES:
+            # Determine if user wants a single combined % or per-row breakdown
+            _wants_combined = any(p in query_lower for p in [
+                "do they represent", "they represent", "do those represent",
+                "they account for", "those account for", "together",
+                "as a group", "combined", "in total",
+            ])
+
+            if _wants_combined:
+                # Single combined cohort share — SUM(cohort) / grand_total
+                pattern_instruction = f"""MANDATORY APPROACH — SINGLE COMBINED PERCENTAGE:
+The user wants ONE number: the combined share of the entire cohort.
+
+```sql
+WITH cohort AS (
+  {clean_prev_sql}
+),
+grand_total AS (
+  SELECT SUM(total_amount) AS total_revenue FROM orders
+)
+SELECT
+  ROUND(SUM(c.[revenue_col]) * 100.0 / g.total_revenue, 2) AS combined_share_pct
+FROM cohort c, grand_total g;
+```
+
+Replace [revenue_col] with the revenue column (e.g. total_spent, total_sales).
+Use SUM(c.[revenue_col]) — NOT cohort.* — so you get ONE row with the combined total.
+The grand_total MUST use the full orders table for the correct denominator."""
+            else:
+                # Per-row breakdown (e.g. "show each customer's share")
+                pattern_instruction = f"""MANDATORY APPROACH FOR PERCENTAGE/SHARE QUERIES:
 Use this CTE pattern to compute share of total revenue:
 
 ```sql
@@ -573,10 +606,10 @@ grand_total AS (
   SELECT SUM(total_amount) AS total_revenue FROM orders
 )
 SELECT
-  cohort.*,
-  ROUND(cohort.[revenue_col] * 100.0 / grand_total.total_revenue, 2) AS share_pct
-FROM cohort, grand_total
-ORDER BY cohort.[revenue_col] DESC;
+  c.*,
+  ROUND(c.[revenue_col] * 100.0 / g.total_revenue, 2) AS share_pct
+FROM cohort c, grand_total g
+ORDER BY c.[revenue_col] DESC;
 ```
 
 Replace [revenue_col] with the actual revenue column from the cohort CTE (e.g. total_spent, total_sales).
@@ -645,12 +678,13 @@ WITH cohort AS (
   {clean_prev_sql}
 )
 SELECT
-  AVG(o.total_amount) AS avg_order_value,
-  COUNT(o.order_id)   AS total_orders
+  ROUND(AVG(o.total_amount), 2) AS avg_order_value,
+  COUNT(o.order_id)             AS total_orders
 FROM orders o
 WHERE o.customer_id IN (SELECT customer_id FROM cohort);
 ```
 
+Always use ROUND(AVG(...), 2) so the result is a clean decimal.
 If the cohort CTE does not expose customer_id, adjust the SELECT to return it."""
 
         else:

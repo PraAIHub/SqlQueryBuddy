@@ -278,7 +278,8 @@ class QueryBuddyApp:
     CURRENCY_HINTS = {
         "price", "revenue", "amount", "spent", "subtotal",
         "total_spent", "total_sales", "total_revenue", "total_amount",
-        "avg_order_value", "monthly_revenue",
+        "avg_order_value", "average_order_value", "avg_order", "order_value",
+        "monthly_revenue",
     }
 
     # Column name hints that are NOT monetary (counts, IDs, quantities)
@@ -358,16 +359,19 @@ class QueryBuddyApp:
         categorical_col = None
 
         _ym_pattern = re.compile(r"^\d{4}-\d{2}$")  # YYYY-MM format from strftime
+        # Time keyword set — check against column name SEGMENTS split by '_'
+        # e.g. "order_date" → {"order","date"} → "date" matches
+        # e.g. "monthly_revenue" → {"monthly","revenue"} → no match (not "month")
+        _TIME_KW = {"month", "date", "year", "quarter", "week", "period"}
 
         for h in headers:
             h_lower = h.lower()
             sample_val = data[0].get(h)
-            # Treat as date column if header name contains time keyword
+            # Treat as date column if any segment of the column name is a time keyword
             # OR if the sample value looks like YYYY-MM (strftime output)
             _is_ym_val = isinstance(sample_val, str) and bool(_ym_pattern.match(str(sample_val)))
-            if any(kw in h_lower for kw in [
-                "month", "date", "year", "quarter", "week", "period",
-            ]) or _is_ym_val:
+            _is_time_col = bool(set(h_lower.split("_")) & _TIME_KW)
+            if _is_time_col or _is_ym_val:
                 date_col = h
             elif isinstance(sample_val, (int, float)):
                 # Prefer metric columns; skip IDs
@@ -586,6 +590,142 @@ class QueryBuddyApp:
             )
         return "\n\n".join(lines)
 
+    # ------------------------------------------------------------------
+    # Meta-intent detection (schema questions / narrative requests)
+    # ------------------------------------------------------------------
+
+    # Schema questions answered from static schema knowledge
+    _SCHEMA_META_ANSWERS = {
+        "tables": (
+            "**Tables in this database:**\n\n"
+            "| Table | Key Columns |\n|---|---|\n"
+            "| `customers` | customer_id, name, email, region, signup_date |\n"
+            "| `orders` | order_id, customer_id, order_date, total_amount |\n"
+            "| `order_items` | item_id, order_id, product_id, quantity, subtotal |\n"
+            "| `products` | product_id, name, category, price |\n\n"
+            "Sales queries typically join **customers → orders → order_items → products**."
+        ),
+        "join": (
+            "**Join path from customers to products:**\n\n"
+            "```\n"
+            "customers.customer_id\n"
+            "  → orders.customer_id\n"
+            "    → order_items.order_id\n"
+            "      → products.product_id\n"
+            "```\n\n"
+            "SQL example:\n"
+            "```sql\n"
+            "FROM customers c\n"
+            "JOIN orders o       ON c.customer_id = o.customer_id\n"
+            "JOIN order_items oi ON o.order_id    = oi.order_id\n"
+            "JOIN products p     ON oi.product_id = p.product_id\n"
+            "```"
+        ),
+        "revenue_field": (
+            "**Revenue fields used:**\n\n"
+            "- **`orders.total_amount`** — order-level revenue (used for customer/region sales totals)\n"
+            "- **`order_items.subtotal`** — line-item revenue (used for product/category analysis)\n\n"
+            "⚠️ When joining orders + order_items together, use `SUM(oi.subtotal)` to avoid "
+            "double-counting (each order row is duplicated per line item)."
+        ),
+        "columns_total": (
+            "**Columns that define totals:**\n\n"
+            "- `orders.total_amount` — total value of an entire order\n"
+            "- `order_items.subtotal` — value of a single line item (quantity × price)\n\n"
+            "Use `SUM(orders.total_amount)` for order-level aggregation and "
+            "`SUM(order_items.subtotal)` for product/category-level aggregation."
+        ),
+    }
+
+    # Patterns that map to schema meta answers
+    _SCHEMA_META_PATTERNS = [
+        (["list the table", "what table", "which table", "show table", "tables you", "tables are you", "tables used"], "tables"),
+        (["join path", "how do you join", "join from customer", "join to product", "what is the join", "explain the join"], "join"),
+        (["which field", "what field", "field.*revenue", "field.*use", "how.*calculate revenue", "how is revenue", "field are you using"], "revenue_field"),
+        (["what column", "which column", "columns define", "columns.*total", "column.*total"], "columns_total"),
+    ]
+
+    # Narrative meta patterns (summarize / recommend) — require LLM or template
+    _NARRATIVE_META_RE = re.compile(
+        r"\b(?:summarize|summarise|summary|summarizing|"
+        r"give.*(?:insight|recommendation|action|bullet)|"
+        r"(?:3|three|top)\s+(?:bullet|insight|recommendation|action)|"
+        r"most important|key insight|what.*(?:should|recommend|action)|"
+        r"action.*recommendation|recommendation.*action)\b",
+        re.IGNORECASE,
+    )
+
+    def _handle_meta_query(self, user_message: str, session_state: dict) -> Optional[str]:
+        """Return a text response for schema/narrative meta queries, or None to continue normal flow."""
+        msg_lower = user_message.lower()
+
+        # Schema meta questions — answer from static knowledge
+        for patterns, answer_key in self._SCHEMA_META_PATTERNS:
+            if any(p in msg_lower for p in patterns):
+                return self._SCHEMA_META_ANSWERS[answer_key]
+
+        # Narrative meta queries (summarize, recommend) — use session history
+        if self._NARRATIVE_META_RE.search(user_message):
+            return self._generate_narrative_response(user_message, session_state)
+
+        return None  # Not a meta query — proceed normally
+
+    def _generate_narrative_response(self, user_message: str, session_state: dict) -> str:
+        """Generate a text summary/recommendation from session history without SQL."""
+        history = self._query_history[-5:] if self._query_history else []
+
+        if not history:
+            return (
+                "I don't have any query results to summarize yet. "
+                "Please run a few data queries first, then ask me to summarize."
+            )
+
+        # Build a context string from recent queries and results
+        ctx_lines = ["**Here are the key insights from your recent queries:**\n"]
+        bullets = []
+
+        for entry in reversed(history):
+            q = entry.get("query", "")
+            rows = entry.get("rows", 0)
+            sql = entry.get("sql", "")
+            if rows > 0 and sql:
+                bullets.append(f"- **{q}** → returned {rows} rows")
+
+        if not bullets:
+            return (
+                "No successful data queries found in this session to summarize. "
+                "Run some data queries and then ask for a summary."
+            )
+
+        # Try LLM for richer narrative
+        if self.using_real_llm:
+            try:
+                history_text = "\n".join(
+                    f"Query: {e.get('query','')}\nRows: {e.get('rows',0)}\nSQL: {e.get('sql','')[:200]}"
+                    for e in history if e.get("rows", 0) > 0
+                )
+                prompt = (
+                    f"The user asked: {user_message}\n\n"
+                    f"Recent session queries:\n{history_text}\n\n"
+                    "Write exactly 3 bullet point insights based on these results. "
+                    "Each bullet should cite a specific data finding and a business implication. "
+                    "Do NOT generate SQL. Respond in plain English."
+                )
+                response = self.insight_generator.llm.invoke(prompt)
+                return f"**📊 Session Summary:**\n\n{response.content.strip()}"
+            except Exception:
+                pass  # Fall back to template
+
+        # Local template fallback
+        ctx_lines.extend(bullets[:5])
+        ctx_lines.append(
+            "\n**Recommendations based on the data:**\n"
+            "1. Focus on high-value customer segments — they drive disproportionate revenue\n"
+            "2. Investigate regional differences to prioritize marketing spend\n"
+            "3. Monitor month-over-month trends to catch revenue shifts early"
+        )
+        return "\n".join(ctx_lines)
+
     def process_query(
         self, user_message: str, chat_history: list, session_state: dict = None
     ) -> Tuple[str, list, Optional[matplotlib.figure.Figure], str, str, str, str, str, str, str, dict]:
@@ -659,6 +799,25 @@ class QueryBuddyApp:
                 session_state["conv_state"].computed_entities.pop("top_customer_ids", None)
                 session_state["conv_state"].computed_entities.pop("top_customers", None)
                 # Don't clear region/year filters — those can legitimately carry over
+
+            # ---------------------------------------------------------------
+            # Meta-intent classifier: detect schema/narrative queries that
+            # should return a text answer, NOT execute SQL.
+            # ---------------------------------------------------------------
+            meta_response = self._handle_meta_query(user_message, session_state)
+            if meta_response is not None:
+                loop_state["user_query"]["completed"] = True
+                loop_state["rag_search"]["completed"] = True
+                loop_state["sql_generation"]["completed"] = True
+                loop_state["validation"]["completed"] = True
+                loop_state["execution"]["completed"] = True
+                loop_state["insights"]["completed"] = True
+                chat_history.append({"role": "user", "content": user_message})
+                chat_history.append({"role": "assistant", "content": meta_response})
+                agent_loop_html = self._generate_agent_loop_html(loop_state)
+                self._stats["total_queries"] += 1
+                self._stats["successful_queries"] += 1
+                return "", chat_history, None, "", self._format_history(), "", "", "", "", agent_loop_html, session_state
 
             # Resolve pronoun/reference expressions using conversation state
             # e.g. "that region" → "the West region", "them" → actual customer names
