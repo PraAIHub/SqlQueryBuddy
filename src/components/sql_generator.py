@@ -239,6 +239,20 @@ class SQLGenerator:
 
     RETRY_DELAY = 1  # seconds
 
+    # Phrases that indicate a follow-up referencing a previous result
+    FOLLOW_UP_PHRASES = [
+        "from the previous", "from that", "from those", "from the result",
+        "filter", "narrow", "only show", "now show", "but only",
+        "of those", "of them", "among them", "among those",
+        "refine", "drill down", "zoom in",
+        "restrict to", "do they", "they represent", "these represent", "those represent",
+        # Additional follow-up indicators (contest improvement)
+        "now only", "now include", "only include", "just show", "keep only",
+        "now filter", "just include", "limit to", "limit them", "restrict them",
+        "what percent", "what share", "how much", "what portion",
+        "from them", "for them", "in them",
+    ]
+
     def _invoke_llm(self, messages) -> str:
         """Invoke LLM with retry logic for transient API failures."""
         req_id = uuid.uuid4().hex[:8]
@@ -402,6 +416,18 @@ class SQLGenerator:
     ) -> Dict[str, str]:
         """Generate SQL from natural language query using LangChain messages."""
         try:
+            # CRITICAL: Detect follow-up queries and force LLM to build on previous SQL
+            query_lower = user_query.lower()
+            is_follow_up = self._is_follow_up(query_lower)
+            previous_sql = self._extract_previous_sql(conversation_history) if is_follow_up else None
+
+            # If follow-up detected with previous SQL, inject MANDATORY template
+            if is_follow_up and previous_sql:
+                # Force LLM to use previous SQL as base
+                schema_context = self._inject_follow_up_template(
+                    schema_context, previous_sql, user_query
+                )
+
             # Build structured prompt with LangChain message types
             user_content = self.prompt_builder.build_sql_generation_prompt(
                 schema_context=schema_context,
@@ -483,6 +509,95 @@ class SQLGenerator:
             return response.content.strip()
         except Exception:
             return "Unable to generate explanation"
+
+    def _extract_previous_sql(self, conversation_history: str) -> Optional[str]:
+        """Extract the most recent SQL query from conversation history."""
+        if not conversation_history:
+            return None
+
+        # Look for SQL code blocks or SELECT statements
+        sql_patterns = [
+            r"```sql\s*\n(.*?)\n```",  # Markdown SQL blocks
+            r"SQL:\s*(SELECT.*?);",     # SQL: prefix
+            r"(SELECT.*?);",            # Raw SELECT statements
+            r"(WITH.*?SELECT.*?);",     # CTEs
+        ]
+
+        matches = []
+        for pattern in sql_patterns:
+            found = re.findall(pattern, conversation_history, re.DOTALL | re.IGNORECASE)
+            matches.extend(found)
+
+        # Return the last match (most recent query)
+        return matches[-1].strip() if matches else None
+
+    def _inject_follow_up_template(self, schema_context: str, previous_sql: str, user_query: str) -> str:
+        """Inject a MANDATORY template forcing the LLM to build on previous SQL."""
+        # Clean the previous SQL
+        clean_prev_sql = previous_sql.rstrip(";").strip()
+
+        # Create the mandatory template section
+        follow_up_instruction = f"""
+
+==========================================================================
+CRITICAL FOLLOW-UP INSTRUCTION (MANDATORY)
+==========================================================================
+
+The user's query is a FOLLOW-UP to a previous result. You MUST build on
+the previous SQL - do NOT create a new unrelated query.
+
+PREVIOUS SQL (USE AS BASE):
+```sql
+{clean_prev_sql}
+```
+
+FOLLOW-UP REQUEST: {user_query}
+
+MANDATORY APPROACH - You MUST use ONE of these patterns:
+
+Pattern 1: Add filter to previous results
+```sql
+SELECT * FROM (
+  {clean_prev_sql}
+) AS previous_result
+WHERE [new filter condition]
+LIMIT 5;  -- Keep original LIMIT if it had one
+```
+
+Pattern 2: Calculate percentage/aggregation on previous results
+```sql
+WITH previous_result AS (
+  {clean_prev_sql}
+), total AS (
+  SELECT SUM(column_name) AS total_value FROM [base_table]
+)
+SELECT
+  previous_result.*,
+  ROUND(previous_result.column_name * 100.0 / total.total_value, 2) AS percentage
+FROM previous_result, total;
+```
+
+Pattern 3: Add time filter to previous results
+```sql
+{clean_prev_sql.replace('WHERE', 'WHERE strftime("%Y", date_column) = "2024" AND')}
+```
+
+CRITICAL RULES:
+1. Your SQL MUST start with SELECT * FROM ( or WITH previous_result AS (
+2. You MUST use the previous SQL as a subquery or CTE
+3. Do NOT generate a new query from scratch
+4. Preserve the original query's logic (LIMIT, ORDER BY, GROUP BY)
+5. Only ADD the new filter/calculation on top
+
+==========================================================================
+"""
+
+        # Prepend the instruction to the schema context
+        return follow_up_instruction + "\n\n" + schema_context
+
+    def _is_follow_up(self, query_lower: str) -> bool:
+        """Detect if the query is a follow-up referencing previous results."""
+        return any(phrase in query_lower for phrase in self.FOLLOW_UP_PHRASES)
 
     def validate_query(self, sql_query: str) -> tuple[bool, Optional[str]]:
         """Validate a SQL query"""
