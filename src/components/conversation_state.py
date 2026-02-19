@@ -89,6 +89,20 @@ class ConversationState:
                         self.computed_entities["rank_2_value"] = sorted_results[1].get("region", "")
                 break
 
+        # Detect top_region / second_region from ranking-gap pivot results
+        # (columns produced by RANK() OVER queries: top_region, second_region, difference)
+        col_lower = [c.lower() for c in columns]
+        if "top_region" in col_lower and results:
+            val = results[0].get(columns[col_lower.index("top_region")], "")
+            if val:
+                self.computed_entities["top_region"] = val
+                self.computed_entities["rank_1_value"] = val
+                self.filters_applied["region"] = val
+        if "second_region" in col_lower and results:
+            val = results[0].get(columns[col_lower.index("second_region")], "")
+            if val:
+                self.computed_entities["rank_2_value"] = val
+
         # Detect category
         for col in columns:
             if col.lower() == "category" and results:
