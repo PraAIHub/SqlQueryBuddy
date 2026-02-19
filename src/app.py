@@ -157,6 +157,9 @@ class QueryBuddyApp:
         # NOTE: Conversation state, context manager, and last results are now per-session
         # using gr.State to prevent cross-user contamination
 
+        # Fallback tracking (shared across sessions for monitoring)
+        self._auto_fallback_active = False
+
         # Query history: list of {"query": ..., "sql": ..., "rows": int}
         self._query_history = []
 
