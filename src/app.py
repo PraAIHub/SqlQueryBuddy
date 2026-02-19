@@ -1629,37 +1629,37 @@ class QueryBuddyApp:
     </div>
 </div>"""
 
-                            with gr.Tabs():
-                                with gr.Tab("📊 Results"):
-                                    results_empty = gr.HTML(value=RESULTS_EMPTY_HTML)
+                            # Contest UI: Vertical accordions instead of tabs for one-screen visibility
+                            with gr.Accordion("📊 Results & Visualization", open=True):
+                                results_empty = gr.HTML(value=RESULTS_EMPTY_HTML)
 
-                                    # Quick filters
-                                    filter_section = gr.Markdown(value="")
+                                # Quick filters
+                                filter_section = gr.Markdown(value="")
 
-                                    chart_output = gr.Plot(
-                                        label="Visualization",
-                                        show_label=False,
-                                        container=True,
-                                        elem_classes="chart-container",
-                                    )
+                                chart_output = gr.Plot(
+                                    label="Visualization",
+                                    show_label=False,
+                                    container=True,
+                                    elem_classes="chart-container",
+                                )
 
-                                with gr.Tab("🔍 SQL"):
-                                    sql_empty = gr.HTML(value=SQL_EMPTY_HTML)
-                                    sql_output = gr.Code(
-                                        label="SQL Code",
-                                        language="sql",
-                                        value="",
-                                        lines=12,
-                                    )
-                                    copy_sql_btn = gr.Button("📋 Copy SQL", size="sm", variant="secondary")
-                                    copy_sql_btn.click(
-                                        None, [sql_output], None,
-                                        js="(sql) => { navigator.clipboard.writeText(sql || ''); }"
-                                    )
+                            with gr.Accordion("🔍 SQL Query", open=True):
+                                sql_empty = gr.HTML(value=SQL_EMPTY_HTML)
+                                sql_output = gr.Code(
+                                    label="Generated SQL",
+                                    language="sql",
+                                    value="",
+                                    lines=10,
+                                )
+                                copy_sql_btn = gr.Button("📋 Copy SQL", size="sm", variant="secondary")
+                                copy_sql_btn.click(
+                                    None, [sql_output], None,
+                                    js="(sql) => { navigator.clipboard.writeText(sql || ''); }"
+                                )
 
-                                with gr.Tab("💡 Insights"):
-                                    insights_output = gr.HTML(
-                                        value="""
+                            with gr.Accordion("💡 AI Insights", open=True):
+                                insights_output = gr.HTML(
+                                    value="""
 <div style='text-align: center; padding: 48px 24px; color: #9ca3af;'>
     <div style='font-size: 40px; margin-bottom: 8px; opacity: 0.5;'>💡</div>
     <div style='font-size: 15px; font-weight: 600; color: #6b7280; margin-bottom: 6px;'>No insights yet</div>
@@ -1668,23 +1668,12 @@ class QueryBuddyApp:
         Trends, anomalies, key metrics, and recommendations.
     </div>
 </div>
-                                        """,
-                                    )
+                                    """,
+                                )
 
-                                with gr.Tab("🗂️ History"):
-                                    history_output = gr.Markdown(
-                                        value="""
-<div style='text-align: center; padding: 48px 24px; color: #9ca3af;'>
-    <div style='font-size: 40px; margin-bottom: 8px; opacity: 0.5;'>🗂️</div>
-    <div style='font-size: 15px; font-weight: 600; color: #6b7280; margin-bottom: 6px;'>No history yet</div>
-    <div style='font-size: 13px;'>Your query history will appear here as you explore.</div>
-</div>
-                                        """,
-                                    )
-
-                                with gr.Tab("🎯 Context"):
-                                    rag_output = gr.Markdown(
-                                        value="""
+                            with gr.Accordion("🎯 RAG Context", open=False):
+                                rag_output = gr.Markdown(
+                                    value="""
 <div style='text-align: center; padding: 48px 24px; color: #9ca3af;'>
     <div style='font-size: 40px; margin-bottom: 8px; opacity: 0.5;'>🎯</div>
     <div style='font-size: 15px; font-weight: 600; color: #6b7280; margin-bottom: 6px;'>No context retrieved yet</div>
@@ -1693,8 +1682,19 @@ class QueryBuddyApp:
         Shows which tables and columns were matched to your query.
     </div>
 </div>
-                                        """,
-                                    )
+                                    """,
+                                )
+
+                            with gr.Accordion("🗂️ Query History", open=False):
+                                history_output = gr.Markdown(
+                                    value="""
+<div style='text-align: center; padding: 48px 24px; color: #9ca3af;'>
+    <div style='font-size: 40px; margin-bottom: 8px; opacity: 0.5;'>🗂️</div>
+    <div style='font-size: 15px; font-weight: 600; color: #6b7280; margin-bottom: 6px;'>No history yet</div>
+    <div style='font-size: 13px;'>Your query history will appear here as you explore.</div>
+</div>
+                                    """,
+                                )
 
                 # Tab 2: Dashboard Overview
                 with gr.Tab("📊 Dashboard"):
