@@ -73,6 +73,11 @@ class SQLPromptBuilder:
         "   - Use date('now', '-3 months') instead of DATE_SUB/INTERVAL\n"
         "   - Use strftime('%Y', col) instead of EXTRACT(YEAR FROM col)\n"
         "   - Use strftime('%m', col) instead of EXTRACT(MONTH FROM col)\n"
+        "   - For MONTHLY TRENDS: always use strftime('%Y-%m', order_date) AS month\n"
+        "     Example: SELECT strftime('%Y-%m', o.order_date) AS month, SUM(o.total_amount) AS monthly_revenue\n"
+        "     FROM orders o WHERE o.order_date >= date('now', '-12 months')\n"
+        "     GROUP BY month ORDER BY month;\n"
+        "   - Always alias the month column as 'month' so the chart renders as a line chart.\n"
         "4. CONTEXT RETENTION (CRITICAL FOR FOLLOW-UPS): If the user references previous results "
         "(e.g., 'now only include California', 'filter those', 'what percent do they represent', "
         "'of them', 'from that', 'now show only'), you MUST build on the previous SQL. "
@@ -533,66 +538,169 @@ class SQLGenerator:
 
     def _inject_follow_up_template(self, schema_context: str, previous_sql: str, user_query: str) -> str:
         """Inject a MANDATORY template forcing the LLM to build on previous SQL."""
-        # Clean the previous SQL
         clean_prev_sql = previous_sql.rstrip(";").strip()
+        query_lower = user_query.lower()
 
-        # Create the mandatory template section
+        # Classify follow-up type to give the LLM the right pattern
+        is_percent_query = any(p in query_lower for p in [
+            "percent", "share", "proportion", "% of", "what portion", "how much of",
+        ])
+        is_filter_query = any(p in query_lower for p in [
+            "only include", "now only", "filter", "restrict", "limit to",
+            "just show", "just include", "only from", "only in",
+        ]) or any(region in query_lower for region in [
+            "california", "new york", "texas", "florida", "illinois",
+            "washington", "georgia", "ohio", "pennsylvania", "colorado",
+        ])
+        is_difference_query = any(p in query_lower for p in [
+            "difference", "how much higher", "how much more", "gap between",
+            "compared to", "versus", "vs",
+        ])
+        is_aov_query = any(p in query_lower for p in [
+            "average order", "avg order", "order value", "aov",
+        ])
+
+        if is_percent_query:
+            # Use CTE: cohort revenue / grand total revenue
+            pattern_instruction = f"""MANDATORY APPROACH FOR PERCENTAGE/SHARE QUERIES:
+Use this CTE pattern to compute share of total revenue:
+
+```sql
+WITH cohort AS (
+  {clean_prev_sql}
+),
+grand_total AS (
+  SELECT SUM(total_amount) AS total_revenue FROM orders
+)
+SELECT
+  cohort.*,
+  ROUND(cohort.[revenue_col] * 100.0 / grand_total.total_revenue, 2) AS share_pct
+FROM cohort, grand_total
+ORDER BY cohort.[revenue_col] DESC;
+```
+
+Replace [revenue_col] with the actual revenue column from the cohort CTE (e.g. total_spent, total_sales).
+The grand_total MUST use the full orders table — NOT the cohort — to get the correct denominator."""
+
+        elif is_filter_query:
+            # INJECT WHERE clause into the original SQL — do NOT wrap in subquery
+            # Subquery wrapping fails because JOIN columns (e.g. region) are not in SELECT list
+            pattern_instruction = f"""MANDATORY APPROACH FOR FILTER QUERIES:
+MODIFY the original SQL by adding a WHERE clause. DO NOT wrap in a subquery.
+
+The original SQL already JOINs all the tables you need. Simply add the WHERE filter
+before GROUP BY (or AND it onto an existing WHERE):
+
+CORRECT — inject WHERE into original SQL:
+```sql
+SELECT c.name, SUM(o.total_amount) AS total_spent
+FROM customers c
+JOIN orders o ON c.customer_id = o.customer_id
+WHERE c.region = 'California'          -- ADD filter here
+GROUP BY c.customer_id, c.name
+ORDER BY total_spent DESC
+LIMIT 5;                               -- Keep original LIMIT
+```
+
+WRONG — this fails because subquery does not expose c.region:
+```sql
+SELECT * FROM (
+  {clean_prev_sql}
+) WHERE region = 'California'
+```
+
+CRITICAL RULES:
+1. Take the PREVIOUS SQL above as your starting point
+2. ADD the new WHERE condition before the GROUP BY clause
+3. If WHERE already exists, append AND [new_condition]
+4. Keep all original GROUP BY, ORDER BY, and LIMIT clauses unchanged
+5. Use the correct table alias for the filter column (e.g. c.region, not just region)"""
+
+        elif is_difference_query:
+            # Compute top1 - top2 from the previous ranked result
+            pattern_instruction = f"""MANDATORY APPROACH FOR DIFFERENCE/COMPARISON QUERIES:
+Use a CTE to get ranked positions from the previous result, then compute the gap:
+
+```sql
+WITH ranked AS (
+  {clean_prev_sql}
+),
+top1 AS (SELECT [metric_col] AS val FROM ranked LIMIT 1),
+top2 AS (SELECT [metric_col] AS val FROM ranked LIMIT 1 OFFSET 1)
+SELECT
+  (SELECT val FROM top1) AS rank_1_value,
+  (SELECT val FROM top2) AS rank_2_value,
+  ROUND((SELECT val FROM top1) - (SELECT val FROM top2), 2) AS difference;
+```
+
+Replace [metric_col] with the actual numeric column from the ranked CTE."""
+
+        elif is_aov_query:
+            # Average order value for a cohort of customers — join orders
+            pattern_instruction = f"""MANDATORY APPROACH FOR AVERAGE ORDER VALUE ON A COHORT:
+Use a CTE to filter to the customer cohort, then compute average order value:
+
+```sql
+WITH cohort AS (
+  {clean_prev_sql}
+)
+SELECT
+  AVG(o.total_amount) AS avg_order_value,
+  COUNT(o.order_id)   AS total_orders
+FROM orders o
+WHERE o.customer_id IN (SELECT customer_id FROM cohort);
+```
+
+If the cohort CTE does not expose customer_id, adjust the SELECT to return it."""
+
+        else:
+            # Generic: present all patterns and let the LLM choose
+            pattern_instruction = f"""MANDATORY APPROACHES — choose the one that fits the request:
+
+Pattern A — Add WHERE filter (for region/category/date/name filters):
+Modify the original SQL by injecting WHERE before GROUP BY:
+```sql
+[original SQL with WHERE condition added before GROUP BY]
+```
+
+Pattern B — Aggregation on the cohort (averages, counts, sums):
+```sql
+WITH cohort AS (
+  {clean_prev_sql}
+)
+SELECT AVG([col]), COUNT(*) FROM orders o
+WHERE o.customer_id IN (SELECT customer_id FROM cohort);
+```
+
+Pattern C — Percentage/share of total:
+```sql
+WITH cohort AS (
+  {clean_prev_sql}
+),
+grand_total AS (SELECT SUM(total_amount) AS tot FROM orders)
+SELECT cohort.*, ROUND(revenue_col * 100.0 / grand_total.tot, 2) AS pct
+FROM cohort, grand_total;
+```"""
+
         follow_up_instruction = f"""
-
 ==========================================================================
-CRITICAL FOLLOW-UP INSTRUCTION (MANDATORY)
+CRITICAL FOLLOW-UP INSTRUCTION (MANDATORY — READ BEFORE GENERATING SQL)
 ==========================================================================
 
-The user's query is a FOLLOW-UP to a previous result. You MUST build on
-the previous SQL - do NOT create a new unrelated query.
+The user's query is a FOLLOW-UP. You MUST build on the previous query.
+Do NOT generate a new unrelated query from scratch.
 
-PREVIOUS SQL (USE AS BASE):
+PREVIOUS SQL (BUILD ON THIS):
 ```sql
 {clean_prev_sql}
 ```
 
 FOLLOW-UP REQUEST: {user_query}
 
-MANDATORY APPROACH - You MUST use ONE of these patterns:
-
-Pattern 1: Add filter to previous results
-```sql
-SELECT * FROM (
-  {clean_prev_sql}
-) AS previous_result
-WHERE [new filter condition]
-LIMIT 5;  -- Keep original LIMIT if it had one
-```
-
-Pattern 2: Calculate percentage/aggregation on previous results
-```sql
-WITH previous_result AS (
-  {clean_prev_sql}
-), total AS (
-  SELECT SUM(column_name) AS total_value FROM [base_table]
-)
-SELECT
-  previous_result.*,
-  ROUND(previous_result.column_name * 100.0 / total.total_value, 2) AS percentage
-FROM previous_result, total;
-```
-
-Pattern 3: Add time filter to previous results
-```sql
-{clean_prev_sql.replace('WHERE', 'WHERE strftime("%Y", date_column) = "2024" AND')}
-```
-
-CRITICAL RULES:
-1. Your SQL MUST start with SELECT * FROM ( or WITH previous_result AS (
-2. You MUST use the previous SQL as a subquery or CTE
-3. Do NOT generate a new query from scratch
-4. Preserve the original query's logic (LIMIT, ORDER BY, GROUP BY)
-5. Only ADD the new filter/calculation on top
+{pattern_instruction}
 
 ==========================================================================
 """
-
-        # Prepend the instruction to the schema context
         return follow_up_instruction + "\n\n" + schema_context
 
     def _is_follow_up(self, query_lower: str) -> bool:
@@ -923,6 +1031,31 @@ class SQLGeneratorMock:
                 "using line-item subtotals. Higher variance indicates more volatile sales."
             ),
         },
+        # Region #1 vs #2 difference query
+        {
+            "keywords": ["region", "#1", "#2", "higher", "difference", "how much higher"],
+            "sql": (
+                "WITH ranked AS ("
+                "SELECT c.region, SUM(o.total_amount) AS total_sales, "
+                "RANK() OVER (ORDER BY SUM(o.total_amount) DESC) AS rnk "
+                "FROM customers c "
+                "JOIN orders o ON c.customer_id = o.customer_id "
+                "GROUP BY c.region"
+                ") "
+                "SELECT "
+                "MAX(CASE WHEN rnk = 1 THEN region END) AS top_region, "
+                "MAX(CASE WHEN rnk = 1 THEN total_sales END) AS top_region_sales, "
+                "MAX(CASE WHEN rnk = 2 THEN region END) AS second_region, "
+                "MAX(CASE WHEN rnk = 2 THEN total_sales END) AS second_region_sales, "
+                "ROUND(MAX(CASE WHEN rnk = 1 THEN total_sales END) - "
+                "MAX(CASE WHEN rnk = 2 THEN total_sales END), 2) AS difference "
+                "FROM ranked WHERE rnk <= 2;"
+            ),
+            "explanation": (
+                "This query ranks regions by total sales and computes the gap "
+                "between the #1 and #2 regions using a window function."
+            ),
+        },
         # Count queries
         {
             "keywords": ["how many", "count", "total number"],
@@ -948,7 +1081,8 @@ class SQLGeneratorMock:
         # Additional follow-up indicators (contest improvement)
         "now only", "now include", "only include", "just show", "keep only",
         "now filter", "just include", "limit to", "limit them", "restrict them",
-        "what percent", "what share", "how much", "what portion",
+        # Pronoun-only percent phrases (avoids matching "what percentage of revenue" standalone queries)
+        "do they represent", "do those represent", "they account for",
         "from them", "for them", "in them",
     ]
 
@@ -988,13 +1122,14 @@ class SQLGeneratorMock:
         return any(phrase in query_lower for phrase in self.FOLLOW_UP_PHRASES)
 
     # Region filter queries that include the region column
+    # {limit_clause} is replaced with "LIMIT N;" (preserving prior LIMIT) or ";"
     REGION_QUERY_TEMPLATE = (
         "SELECT c.name, c.region, SUM(o.total_amount) AS total_spent "
         "FROM customers c "
         "JOIN orders o ON c.customer_id = o.customer_id "
         "WHERE {condition} "
         "GROUP BY c.customer_id, c.name, c.region "
-        "ORDER BY total_spent DESC;"
+        "ORDER BY total_spent DESC{limit_clause}"
     )
 
     # Category filter queries
@@ -1066,13 +1201,19 @@ class SQLGeneratorMock:
 
         where_clause = " AND ".join(conditions)
 
+        # Detect LIMIT from previous SQL to re-apply it in follow-up
+        _limit_match = re.search(r"\bLIMIT\s+(\d+)", self._last_sql, re.IGNORECASE)
+        _prev_limit = int(_limit_match.group(1)) if _limit_match else None
+        _limit_clause = f" LIMIT {_prev_limit};" if _prev_limit else ";"
+
         # For region/name filters on a customers query, build a fresh query
         # that includes the filter column (avoids subquery column issues)
         if filter_type == "region" or filter_type == "name":
             follow_up_sql = self.REGION_QUERY_TEMPLATE.format(
                 condition=" AND ".join(
                     c for c in conditions if "region" in c or "name" in c
-                )
+                ),
+                limit_clause=_limit_clause,
             )
         elif filter_type == "category":
             follow_up_sql = self.CATEGORY_QUERY_TEMPLATE.format(
@@ -1184,11 +1325,18 @@ class SQLGeneratorMock:
         if not condition:
             return sql
 
-        # Only inject if the query references orders (has o. alias or orders table)
-        if "orders" not in sql.lower() and " o." not in sql.lower():
+        # Only inject if the 'o.' alias appears in the outer FROM clause
+        # (not just inside a subquery). This prevents injecting o.order_date
+        # into queries like "FROM customers c WHERE ... NOT IN (SELECT ... FROM orders)"
+        # where 'o' is not an alias in the outer scope.
+        _has_orders_alias = bool(re.search(
+            r"\bFROM\s+orders\s+o\b|\bJOIN\s+orders\s+o\b",
+            sql, re.IGNORECASE
+        ))
+
+        if not _has_orders_alias:
             # Try to inject via a JOIN on orders if order_items is present
-            if "order_items" in sql.lower() and "JOIN orders" not in sql:
-                # Add a JOIN to orders so we can filter by date
+            if "order_items" in sql.lower() and not re.search(r"\bJOIN\s+orders\b", sql, re.IGNORECASE):
                 sql = sql.replace(
                     "GROUP BY",
                     f"JOIN orders o ON oi.order_id = o.order_id\n"
@@ -1196,6 +1344,7 @@ class SQLGeneratorMock:
                     1,
                 )
                 return sql
+            # Cannot safely inject — skip time filter to avoid broken SQL
             return sql
 
         # Inject WHERE clause before GROUP BY (or at end)

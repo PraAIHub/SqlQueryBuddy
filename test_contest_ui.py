@@ -36,10 +36,10 @@ try:
 
     results = app.process_query(user_query, chat_history, session_state)
 
-    # Verify return tuple has 10 values
-    assert len(results) == 10, f"Expected 10 return values, got {len(results)}"
+    # Verify return tuple has 11 values (msg, chat, chart, insights, history, rag, sql, sql_explanation, filter, agent_loop, session_state)
+    assert len(results) == 11, f"Expected 11 return values, got {len(results)}"
 
-    msg, chat_history, chart, insights_md, history, rag_display, sql, filter_md, agent_loop_html, session_state = results
+    msg, chat_history, chart, insights_md, history, rag_display, sql, sql_explanation, filter_md, agent_loop_html, session_state = results
 
     # Verify agent loop HTML is generated
     assert agent_loop_html, "Agent loop HTML should not be empty"

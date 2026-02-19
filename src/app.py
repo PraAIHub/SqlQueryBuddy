@@ -9,6 +9,7 @@ import re
 import tempfile
 import time
 import uuid
+from collections import OrderedDict
 from typing import Tuple, Optional
 
 import matplotlib
@@ -356,12 +357,17 @@ class QueryBuddyApp:
         numeric_col = None
         categorical_col = None
 
+        _ym_pattern = re.compile(r"^\d{4}-\d{2}$")  # YYYY-MM format from strftime
+
         for h in headers:
             h_lower = h.lower()
             sample_val = data[0].get(h)
+            # Treat as date column if header name contains time keyword
+            # OR if the sample value looks like YYYY-MM (strftime output)
+            _is_ym_val = isinstance(sample_val, str) and bool(_ym_pattern.match(str(sample_val)))
             if any(kw in h_lower for kw in [
                 "month", "date", "year", "quarter", "week", "period",
-            ]):
+            ]) or _is_ym_val:
                 date_col = h
             elif isinstance(sample_val, (int, float)):
                 # Prefer metric columns; skip IDs
@@ -397,74 +403,78 @@ class QueryBuddyApp:
 
         # Modern chart style
         fig, ax = plt.subplots(figsize=(8, 4))
-        fig.patch.set_facecolor('#ffffff')
-        ax.set_facecolor('#fafafa')
-        ax.spines['top'].set_visible(False)
-        ax.spines['right'].set_visible(False)
-        ax.spines['left'].set_color('#e5e7eb')
-        ax.spines['bottom'].set_color('#e5e7eb')
-        ax.tick_params(colors='#6b7280', labelsize=9)
+        try:
+            fig.patch.set_facecolor('#ffffff')
+            ax.set_facecolor('#fafafa')
+            ax.spines['top'].set_visible(False)
+            ax.spines['right'].set_visible(False)
+            ax.spines['left'].set_color('#e5e7eb')
+            ax.spines['bottom'].set_color('#e5e7eb')
+            ax.tick_params(colors='#6b7280', labelsize=9)
 
-        # Friendly column labels for titles
-        friendly_metric = numeric_col.replace('_', ' ').title()
-        friendly_date = date_col.replace('_', ' ').title() if date_col else ""
-        friendly_cat = categorical_col.replace('_', ' ').title() if categorical_col else ""
+            # Friendly column labels for titles
+            friendly_metric = numeric_col.replace('_', ' ').title()
+            friendly_date = date_col.replace('_', ' ').title() if date_col else ""
+            friendly_cat = categorical_col.replace('_', ' ').title() if categorical_col else ""
 
-        if date_col:
-            # Aggregate time-series if too many raw data points
-            agg_data = self._aggregate_time_series(data, date_col, numeric_col)
-            labels = [str(row.get(date_col, "")) for row in agg_data]
-            values = []
-            for row in agg_data:
-                try:
-                    values.append(float(row.get(numeric_col, 0)))
-                except (ValueError, TypeError):
-                    values.append(0)
+            if date_col:
+                # Aggregate time-series if too many raw data points
+                agg_data = self._aggregate_time_series(data, date_col, numeric_col)
+                labels = [str(row.get(date_col, "")) for row in agg_data]
+                values = []
+                for row in agg_data:
+                    try:
+                        values.append(float(row.get(numeric_col, 0)))
+                    except (ValueError, TypeError):
+                        values.append(0)
 
-            x = range(len(labels))
-            ax.plot(x, values, marker="o", linewidth=2.5, color="#7c3aed",
-                    markersize=4 if len(labels) > 15 else 5,
-                    markerfacecolor="#ffffff", markeredgewidth=1.5, markeredgecolor="#7c3aed")
-            ax.fill_between(x, values, alpha=0.08, color="#7c3aed")
-            # Reduce x-axis tick clutter
-            max_ticks = 10
-            if len(labels) > max_ticks:
-                step = math.ceil(len(labels) / max_ticks)
-                tick_positions = list(range(0, len(labels), step))
-                ax.set_xticks(tick_positions)
-                ax.set_xticklabels([labels[i] for i in tick_positions], rotation=30, ha="right")
+                x = range(len(labels))
+                ax.plot(x, values, marker="o", linewidth=2.5, color="#7c3aed",
+                        markersize=4 if len(labels) > 15 else 5,
+                        markerfacecolor="#ffffff", markeredgewidth=1.5, markeredgecolor="#7c3aed")
+                ax.fill_between(x, values, alpha=0.08, color="#7c3aed")
+                # Reduce x-axis tick clutter
+                max_ticks = 10
+                if len(labels) > max_ticks:
+                    step = math.ceil(len(labels) / max_ticks)
+                    tick_positions = list(range(0, len(labels), step))
+                    ax.set_xticks(tick_positions)
+                    ax.set_xticklabels([labels[i] for i in tick_positions], rotation=30, ha="right")
+                else:
+                    ax.set_xticks(range(len(labels)))
+                    ax.set_xticklabels(labels, rotation=30, ha="right")
+                ax.set_title(f"{friendly_metric} over {friendly_date}", fontsize=13, fontweight="bold", color="#1f2937", pad=12)
+                ax.set_ylabel(friendly_metric, fontsize=10, color="#6b7280")
+                ax.grid(axis="y", alpha=0.15, color="#d1d5db")
+            elif categorical_col:
+                rows = data[:20]
+                values = []
+                for row in rows:
+                    try:
+                        values.append(float(row.get(numeric_col, 0)))
+                    except (ValueError, TypeError):
+                        values.append(0)
+                labels = [str(row.get(categorical_col, ""))[:20] for row in rows]
+                bars = ax.barh(range(len(labels)), values, color="#7c3aed", height=0.6, edgecolor="none")
+                ax.set_yticks(range(len(labels)))
+                ax.set_yticklabels(labels, fontsize=10)
+                ax.set_title(f"{friendly_metric} by {friendly_cat}", fontsize=13, fontweight="bold", color="#1f2937", pad=12)
+                ax.set_xlabel(friendly_metric, fontsize=10, color="#6b7280")
+                ax.invert_yaxis()
+                ax.grid(axis="x", alpha=0.15, color="#d1d5db")
+                # Value labels on bars
+                for bar, val in zip(bars, values):
+                    ax.text(bar.get_width() + max(values) * 0.01, bar.get_y() + bar.get_height() / 2,
+                            f'{val:,.0f}', va='center', fontsize=8, color='#6b7280')
             else:
-                ax.set_xticks(range(len(labels)))
-                ax.set_xticklabels(labels, rotation=30, ha="right")
-            ax.set_title(f"{friendly_metric} over {friendly_date}", fontsize=13, fontweight="bold", color="#1f2937", pad=12)
-            ax.set_ylabel(friendly_metric, fontsize=10, color="#6b7280")
-            ax.grid(axis="y", alpha=0.15, color="#d1d5db")
-        elif categorical_col:
-            rows = data[:20]
-            values = []
-            for row in rows:
-                try:
-                    values.append(float(row.get(numeric_col, 0)))
-                except (ValueError, TypeError):
-                    values.append(0)
-            labels = [str(row.get(categorical_col, ""))[:20] for row in rows]
-            bars = ax.barh(range(len(labels)), values, color="#7c3aed", height=0.6, edgecolor="none")
-            ax.set_yticks(range(len(labels)))
-            ax.set_yticklabels(labels, fontsize=10)
-            ax.set_title(f"{friendly_metric} by {friendly_cat}", fontsize=13, fontweight="bold", color="#1f2937", pad=12)
-            ax.set_xlabel(friendly_metric, fontsize=10, color="#6b7280")
-            ax.invert_yaxis()
-            ax.grid(axis="x", alpha=0.15, color="#d1d5db")
-            # Value labels on bars
-            for bar, val in zip(bars, values):
-                ax.text(bar.get_width() + max(values) * 0.01, bar.get_y() + bar.get_height() / 2,
-                        f'{val:,.0f}', va='center', fontsize=8, color='#6b7280')
-        else:
+                plt.close(fig)
+                return None
+
+            fig.tight_layout()
+            return fig
+        except Exception:
             plt.close(fig)
             return None
-
-        fig.tight_layout()
-        return fig
 
     @staticmethod
     def _aggregate_time_series(data: list, date_col: str, numeric_col: str, max_points: int = 30) -> list:
@@ -477,7 +487,6 @@ class QueryBuddyApp:
             return data
 
         # Group by date value (handles daily, monthly, etc.)
-        from collections import OrderedDict
         groups: OrderedDict = OrderedDict()
         for row in data:
             key = str(row.get(date_col, ""))
@@ -597,7 +606,7 @@ class QueryBuddyApp:
 
         # Validate empty input
         if not user_message or not user_message.strip():
-            return "", chat_history, None, "", self._format_history(session_state), "", "", "", "", "", session_state
+            return "", chat_history, None, "", self._format_history(), "", "", "", "", "", session_state
 
         user_message = user_message.strip()
 
@@ -639,6 +648,18 @@ class QueryBuddyApp:
             return "", chat_history, None, "", self._format_history(), "", "", "", "", agent_loop_html, session_state
 
         try:
+            # Detect topic changes (e.g. switching from customers to category analysis)
+            # Clear customer-specific cohort state to avoid contaminating new queries
+            _msg_lower = user_message.lower()
+            _is_topic_change = (
+                any(w in _msg_lower for w in ["category", "product", "which category", "most revenue"])
+                and not any(w in _msg_lower for w in ["customer", "them", "they", "those", "the customers"])
+            )
+            if _is_topic_change:
+                session_state["conv_state"].computed_entities.pop("top_customer_ids", None)
+                session_state["conv_state"].computed_entities.pop("top_customers", None)
+                # Don't clear region/year filters — those can legitimately carry over
+
             # Resolve pronoun/reference expressions using conversation state
             # e.g. "that region" → "the West region", "them" → actual customer names
             resolved_message = resolve_references(user_message, session_state["conv_state"])
@@ -1895,7 +1916,6 @@ class QueryBuddyApp:
                 results = self.process_query(user_message, chat_history, session_state)
 
                 # Generate timestamp for scroll trigger
-                import time
                 scroll_timestamp = str(time.time())
 
                 # Hide empty-state placeholders when data is present

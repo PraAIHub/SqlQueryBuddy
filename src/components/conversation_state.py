@@ -23,6 +23,7 @@ class ConversationState:
         self.last_time_range: Optional[str] = None  # e.g. "2024"
         self.filters_applied: Dict[str, str] = {}   # e.g. {"region": "West", "year": "2024"}
         self.last_sql: str = ""
+        self.last_limit: Optional[int] = None       # LIMIT N from the previous query
         self.last_result_signature: Dict[str, Any] = {}  # {"columns": [...], "row_count": int}
         self.computed_entities: Dict[str, Any] = {
             # Only populated when actually computed
@@ -44,6 +45,9 @@ class ConversationState:
     ):
         """Extract and store state from a successful query run."""
         self.last_sql = sql
+        # Extract LIMIT value from the SQL for follow-up preservation
+        _limit_match = re.search(r"\bLIMIT\s+(\d+)", sql, re.IGNORECASE)
+        self.last_limit = int(_limit_match.group(1)) if _limit_match else None
         columns = list(results[0].keys()) if results else []
         self.last_result_signature = {
             "columns": columns,
@@ -82,18 +86,25 @@ class ConversationState:
                     self.computed_entities["top_category"] = results[0].get("category", "")
                 break
 
-        # Detect customer names in results
+        # Detect customer names and IDs in results
         name_col = None
+        id_col = None
         for col in columns:
             if col.lower() in ("name", "customer_name", "customer"):
                 name_col = col
-                break
+            if col.lower() in ("customer_id",):
+                id_col = col
 
         if name_col and results:
-            if _is_ranking_query(query_lower) or "top" in query_lower:
+            if _is_ranking_query(query_lower) or "top" in query_lower or "customer" in query_lower:
                 customer_names = [r.get(name_col, "") for r in results if r.get(name_col)]
                 if customer_names:
                     self.computed_entities["top_customers"] = customer_names[:10]
+                # Also store customer IDs for precise SQL filtering
+                if id_col:
+                    customer_ids = [r.get(id_col) for r in results if r.get(id_col) is not None]
+                    if customer_ids:
+                        self.computed_entities["top_customer_ids"] = customer_ids[:10]
 
         # Detect if a specific region/category was applied as a filter
         if "region" in query_lower:
@@ -158,8 +169,8 @@ class ConversationState:
 
 # Reference patterns → state field mapping
 _REGION_REFS = re.compile(
-    r"\b(?:that region|the region|this region|the top region|the #1 region|"
-    r"in (?:the )?(?:top|#1|first) region)\b",
+    r"\b(?:of that region|of the region|that region|the region|this region|"
+    r"the top region|the #1 region|in (?:the )?(?:top|#1|first) region)\b",
     re.IGNORECASE,
 )
 _CUSTOMER_REFS = re.compile(
@@ -195,11 +206,18 @@ def resolve_references(
             resolved = _REGION_REFS.sub(f"the {top_region} region", resolved)
             changes.append(f"region→{top_region}")
 
-    # "them" / "those customers" → state.computed_entities.top_customers
+    # "them" / "those customers" → prefer customer IDs for precise SQL filtering
     if _CUSTOMER_REFS.search(resolved):
+        customer_ids = state.computed_entities.get("top_customer_ids")
         customers = state.computed_entities.get("top_customers")
-        if customers:
-            # Inject customer names as a constraint hint for the LLM
+        if customer_ids:
+            ids_str = ", ".join(str(i) for i in customer_ids[:10])
+            resolved = _CUSTOMER_REFS.sub(
+                f"the customers with customer_id IN ({ids_str})", resolved
+            )
+            changes.append(f"customer_ids→{len(customer_ids)} ids")
+        elif customers:
+            # Fall back to names when IDs are unavailable
             names_str = ", ".join(customers[:10])
             resolved = _CUSTOMER_REFS.sub(
                 f"the customers ({names_str})", resolved
