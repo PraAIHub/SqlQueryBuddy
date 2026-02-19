@@ -63,8 +63,8 @@ class QueryBuddyApp:
             max_rows=settings.max_rows_return,
         )
 
-        # Initialize NLP and context management
-        self.context_manager = ContextManager()
+        # Initialize shared context manager template (will be cloned per-session)
+        self._context_manager_template = ContextManager()
 
         # Determine LLM mode from APP_MODE setting
         _placeholder_keys = {"your-api-key-here", "sk-xxx", "your_api_key", ""}
@@ -115,7 +115,7 @@ class QueryBuddyApp:
 
         # Initialize RAG system with schema embeddings
         schema = self.db_connection.get_schema()
-        self.context_manager.initialize_with_schema(schema)
+        self._context_manager_template.initialize_with_schema(schema)
 
         embedding_provider = SimpleEmbeddingProvider()
         # Build vocabulary from schema descriptions
@@ -154,13 +154,8 @@ class QueryBuddyApp:
         # Build schema whitelist for SQL identifier validation
         self._all_tables, self._table_columns = build_schema_whitelist(self._cached_schema)
 
-        # Conversation state for multi-turn context retention
-        self.conv_state = ConversationState()
-
-        # Store last results for export
-        self._last_results = []
-        self._last_sql = ""
-        self._auto_fallback_active = False
+        # NOTE: Conversation state, context manager, and last results are now per-session
+        # using gr.State to prevent cross-user contamination
 
         # Query history: list of {"query": ..., "sql": ..., "rows": int}
         self._query_history = []
@@ -173,6 +168,36 @@ class QueryBuddyApp:
             "total_response_time_ms": 0,
             "query_times": [],  # Last 50 query times
         }
+
+    # ------------------------------------------------------------------
+    # Session State Management (per-user isolation)
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def create_session_state():
+        """Create a new session state dictionary for a user session."""
+        return {
+            "conv_state": ConversationState(),
+            "context_manager": None,  # Will be initialized on first use
+            "last_results": [],
+            "last_sql": "",
+        }
+
+    def _ensure_session_initialized(self, session_state: dict) -> dict:
+        """Ensure session state is properly initialized."""
+        if session_state is None:
+            session_state = self.create_session_state()
+
+        # Initialize context manager from template if not yet done
+        if session_state.get("context_manager") is None:
+            session_state["context_manager"] = ContextManager()
+            session_state["context_manager"].initialize_with_schema(self._cached_schema)
+
+        return session_state
+
+    # ------------------------------------------------------------------
+    # Formatting Helpers
+    # ------------------------------------------------------------------
 
     # Column name hints that indicate monetary values
     CURRENCY_HINTS = {
@@ -479,12 +504,15 @@ class QueryBuddyApp:
         return "\n\n".join(lines)
 
     def process_query(
-        self, user_message: str, chat_history: list
-    ) -> Tuple[str, list, Optional[matplotlib.figure.Figure], str, str, str, str, str]:
-        """Process user query and return response, chart, insights, history, RAG context, SQL, and filters"""
+        self, user_message: str, chat_history: list, session_state: dict = None
+    ) -> Tuple[str, list, Optional[matplotlib.figure.Figure], str, str, str, str, str, dict]:
+        """Process user query and return response, chart, insights, history, RAG context, SQL, filters, and session state"""
+        # Ensure session state is initialized
+        session_state = self._ensure_session_initialized(session_state)
+
         # Validate empty input
         if not user_message or not user_message.strip():
-            return "", chat_history, None, "", self._format_history(), "", "", ""
+            return "", chat_history, None, "", self._format_history(session_state), "", "", "", session_state
 
         user_message = user_message.strip()
 
@@ -501,7 +529,7 @@ class QueryBuddyApp:
             )
             chat_history.append({"role": "user", "content": user_message[:100] + "..."})
             chat_history.append({"role": "assistant", "content": error_response})
-            return "", chat_history, None, "", self._format_history(), "", "", ""
+            return "", chat_history, None, "", self._format_history(), "", "", "", session_state, session_state
 
         # Block multi-statement injection attempts in user input
         # (semicolon immediately followed by a dangerous SQL keyword)
@@ -516,15 +544,15 @@ class QueryBuddyApp:
             )
             chat_history.append({"role": "user", "content": user_message})
             chat_history.append({"role": "assistant", "content": error_response})
-            return "", chat_history, None, "", self._format_history(), "", "", ""
+            return "", chat_history, None, "", self._format_history(), "", "", "", session_state
 
         try:
             # Resolve pronoun/reference expressions using conversation state
             # e.g. "that region" → "the West region", "them" → actual customer names
-            resolved_message = resolve_references(user_message, self.conv_state)
+            resolved_message = resolve_references(user_message, session_state["conv_state"])
 
             # Parse user input with NLP (use resolved version for better intent detection)
-            parsed = self.context_manager.process_input(resolved_message)
+            parsed = session_state["context_manager"].process_input(resolved_message)
             parsed_query = parsed["parsed_query"]
             intent = parsed_query["intent"]
             entities = parsed_query["entities"]
@@ -555,13 +583,13 @@ class QueryBuddyApp:
 
             # Append active filters context so LLM carries forward constraints
             _filters_ctx = ""
-            if self.conv_state.filters_applied:
+            if session_state["conv_state"].filters_applied:
                 _filters_ctx = "\n\nActive filters from previous turns: " + ", ".join(
-                    f"{k}={v}" for k, v in self.conv_state.filters_applied.items()
+                    f"{k}={v}" for k, v in session_state["conv_state"].filters_applied.items()
                 )
 
             # Generate SQL (use resolved_message so references are concrete)
-            conversation_ctx = self.context_manager.get_full_context()
+            conversation_ctx = session_state["context_manager"].get_full_context()
             result = self.sql_generator.generate(
                 user_query=resolved_message,
                 schema_context=schema_str + _filters_ctx,
@@ -621,7 +649,7 @@ class QueryBuddyApp:
                     )
                     chat_history.append({"role": "user", "content": user_message})
                     chat_history.append({"role": "assistant", "content": error_msg})
-                    return "", chat_history, None, "", self._format_history(), "", "", ""
+                    return "", chat_history, None, "", self._format_history(), "", "", "", session_state
 
                 # APP_MODE=auto: fallback to mock generator with visible banner
                 self._auto_fallback_active = True
@@ -638,7 +666,7 @@ class QueryBuddyApp:
                 )
                 chat_history.append({"role": "user", "content": user_message})
                 chat_history.append({"role": "assistant", "content": response})
-                return "", chat_history, None, "", self._format_history(), "", "", ""
+                return "", chat_history, None, "", self._format_history(), "", "", "", session_state
 
             generated_sql = result.get("generated_sql", "")
 
@@ -678,7 +706,7 @@ class QueryBuddyApp:
                 )
                 chat_history.append({"role": "user", "content": user_message})
                 chat_history.append({"role": "assistant", "content": response})
-                return "", chat_history, None, "", self._format_history(), "", "", ""
+                return "", chat_history, None, "", self._format_history(), "", "", "", session_state
 
             # Auto-LIMIT unbounded SELECT queries to prevent full table scans
             generated_sql = self.optimizer.auto_limit_sql(generated_sql)
@@ -751,19 +779,19 @@ class QueryBuddyApp:
                         "openai" if self.using_real_llm else "local",
                         round(exec_ms),
                     )
-                    return "", chat_history, None, "", self._format_history(), rag_context, generated_sql, ""
+                    return "", chat_history, None, "", self._format_history(), rag_context, generated_sql, "", session_state
 
             # Track successful query
             self._stats["successful_queries"] += 1
 
             # Store results for export and history
             data = exec_result.get("data", [])
-            self._last_results = data
-            self._last_sql = generated_sql
+            session_state["last_results"] = data
+            session_state["last_sql"] = generated_sql
 
             # Update conversation state with computed entities / filters
             if data:
-                self.conv_state.update_from_results(user_message, generated_sql, data)
+                session_state["conv_state"].update_from_results(user_message, generated_sql, data)
             _run_status = "fallback" if self._auto_fallback_active else "success"
             self._query_history.append({
                 "query": user_message,
@@ -895,12 +923,12 @@ class QueryBuddyApp:
 
             # Update context and structured query plan
             response_text = "\n".join(response_lines)
-            self.context_manager.add_response(
+            session_state["context_manager"].add_response(
                 user_input=user_message,
                 assistant_response=response_text,
                 generated_sql=generated_sql,
             )
-            self.context_manager.update_query_plan(
+            session_state["context_manager"].update_query_plan(
                 intent=intent,
                 entities=entities,
                 generated_sql=generated_sql,
@@ -915,7 +943,7 @@ class QueryBuddyApp:
                 chart = self._generate_chart(data)
 
             # Build enriched RAG display with query plan state
-            plan_str = self.context_manager.query_plan.to_context_string()
+            plan_str = session_state["context_manager"].query_plan.to_context_string()
             rag_display = rag_context
 
             if plan_str:
@@ -929,7 +957,7 @@ class QueryBuddyApp:
                 )
 
             # Active context filters (judge-visible pills)
-            active_filters_html = self.conv_state.get_active_filters_html()
+            active_filters_html = session_state["conv_state"].get_active_filters_html()
 
             # Generate quick filter options
             filter_opts = self._detect_filter_options(data)
@@ -957,7 +985,7 @@ class QueryBuddyApp:
                 "yes" if chart else "no",
             )
 
-            return "", chat_history, chart, insights_md, self._format_history(), rag_display, generated_sql, filter_md
+            return "", chat_history, chart, insights_md, self._format_history(), rag_display, generated_sql, filter_md, session_state
 
         except Exception as e:
             logger.exception("Unexpected error in process_query")
@@ -992,7 +1020,7 @@ class QueryBuddyApp:
 
             chat_history.append({"role": "user", "content": user_message})
             chat_history.append({"role": "assistant", "content": error_response})
-            return "", chat_history, None, "", self._format_history(), "", "", ""
+            return "", chat_history, None, "", self._format_history(), "", "", "", session_state
 
     @staticmethod
     def _format_schema(schema: dict) -> str:
@@ -1057,15 +1085,18 @@ class QueryBuddyApp:
             lines.append("")
         return "\n".join(lines)
 
-    def export_csv(self):
+    def export_csv(self, session_state: dict = None):
         """Export last query results as a CSV file."""
-        if not self._last_results:
+        session_state = self._ensure_session_initialized(session_state)
+        last_results = session_state.get("last_results", [])
+
+        if not last_results:
             return None
         output = io.StringIO()
-        headers = list(self._last_results[0].keys())
+        headers = list(last_results[0].keys())
         writer = csv.DictWriter(output, fieldnames=headers)
         writer.writeheader()
-        writer.writerows(self._last_results)
+        writer.writerows(last_results)
         # Write to a temp file for Gradio download
         tmp = tempfile.NamedTemporaryFile(
             mode="w", suffix=".csv", delete=False, prefix="query_results_"
@@ -1696,6 +1727,9 @@ class QueryBuddyApp:
             # Hidden textbox to trigger scroll via JavaScript
             scroll_trigger = gr.Textbox(visible=False, value="0")
 
+            # Session state for per-user conversation isolation
+            session_state = gr.State(value=self.create_session_state())
+
             # Loading card HTML for right panel during processing
             LOADING_CARD_HTML = """
 <div style='display: flex; flex-direction: column; align-items: center; justify-content: center;
@@ -1717,10 +1751,10 @@ class QueryBuddyApp:
 """
 
             # Wrapper function to handle loading states
-            def process_with_loading(user_message, chat_history):
+            def process_with_loading(user_message, chat_history, session_state):
                 """Process query and manage button states during execution"""
                 # Call the actual process_query function
-                results = self.process_query(user_message, chat_history)
+                results = self.process_query(user_message, chat_history, session_state)
 
                 # Generate timestamp for scroll trigger
                 import time
@@ -1750,13 +1784,13 @@ class QueryBuddyApp:
                     scroll_timestamp,  # scroll_trigger - triggers JS on change
                 ]
 
-            # All outputs including empty states, button states, dashboard, filters, and scroll trigger
+            # All outputs including empty states, button states, dashboard, filters, scroll trigger, and session state
             query_outputs = [
                 msg, chatbot, chart_output, insights_output,
                 history_output, rag_output, sql_output, filter_section,
                 results_empty, sql_empty,
                 submit_btn, export_btn, clear, ex1, ex2, ex3, ex4, ex5, ex6, ex7, ex8, dashboard_view,
-                scroll_trigger
+                scroll_trigger, session_state
             ]
 
             # JavaScript to scroll chatbot to bottom (triggered by scroll_trigger change)
@@ -1808,7 +1842,7 @@ class QueryBuddyApp:
             ).then(
                 show_loading, outputs=[insights_output, filter_section]
             ).then(
-                process_with_loading, [msg, chatbot], query_outputs
+                process_with_loading, [msg, chatbot, session_state], query_outputs
             )
 
             submit_btn.click(
@@ -1818,7 +1852,7 @@ class QueryBuddyApp:
             ).then(
                 show_loading, outputs=[insights_output, filter_section]
             ).then(
-                process_with_loading, [msg, chatbot], query_outputs
+                process_with_loading, [msg, chatbot, session_state], query_outputs
             )
 
             # Empty state HTML cards (reused in clear_chat)
@@ -1851,9 +1885,9 @@ class QueryBuddyApp:
 """
 
             def clear_chat():
-                self.context_manager.reset()
-                self.conv_state.reset()
+                # Clear global query history (for metrics)
                 self._query_history.clear()
+                # Return cleared UI state + new session state
                 return (
                     [], "", None,
                     EMPTY_INSIGHTS,
@@ -1863,9 +1897,10 @@ class QueryBuddyApp:
                     "",  # filter_section
                     RESULTS_EMPTY_HTML,  # results_empty restored
                     SQL_EMPTY_HTML,      # sql_empty restored
+                    self.create_session_state(),  # Create fresh session state
                 )
 
-            clear.click(clear_chat, outputs=[chatbot, msg, chart_output, insights_output, history_output, rag_output, sql_output, filter_section, results_empty, sql_empty])
+            clear.click(clear_chat, outputs=[chatbot, msg, chart_output, insights_output, history_output, rag_output, sql_output, filter_section, results_empty, sql_empty, session_state])
 
             # Dashboard refresh button
             refresh_dashboard.click(
@@ -1873,14 +1908,14 @@ class QueryBuddyApp:
                 outputs=[dashboard_view]
             )
 
-            def handle_export():
-                path = self.export_csv()
+            def handle_export(session_state):
+                path = self.export_csv(session_state)
                 if path:
                     return gr.File(value=path, visible=True)
                 gr.Info("No results to export. Run a query first.")
                 return gr.File(visible=False)
 
-            export_btn.click(handle_export, outputs=[export_file])
+            export_btn.click(handle_export, inputs=[session_state], outputs=[export_file])
 
             # Enable/disable Send button based on textbox content
             def update_send_button(text):
@@ -1890,10 +1925,10 @@ class QueryBuddyApp:
             msg.change(update_send_button, inputs=[msg], outputs=[submit_btn])
 
             # Example query buttons: single handler to prevent race conditions
-            def handle_example_click(query_text, chat_history):
+            def handle_example_click(query_text, chat_history, session_state):
                 """Handle example button click: fill textbox and process query in one go"""
                 # Process the query
-                results = self.process_query(query_text, chat_history)
+                results = self.process_query(query_text, chat_history, session_state)
 
                 # Generate timestamp for scroll trigger
                 import time
@@ -1949,8 +1984,8 @@ class QueryBuddyApp:
                     show_loading, outputs=[insights_output, filter_section]
                 ).then(
                     # Process query and re-enable all buttons (scroll_trigger updated here)
-                    fn=lambda ch, q=query: handle_example_click(q, ch),
-                    inputs=[chatbot],
+                    fn=lambda ch, ss, q=query: handle_example_click(q, ch, ss),
+                    inputs=[chatbot, session_state],
                     outputs=example_outputs,
                 )
 

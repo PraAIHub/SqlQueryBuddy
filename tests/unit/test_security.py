@@ -538,6 +538,45 @@ class TestFollowUpAndAvgLogic:
             f"Year filter '2024' was dropped from follow-up SQL: {sql}"
         )
 
+    def test_chained_followup_preserves_region_and_year(self):
+        """Step 1: top customers. Step 2: filter California. Step 3: restrict
+        to 2024. Final SQL must have BOTH region AND year."""
+        mock = SQLGeneratorMock()
+        mock.generate("Show me top customers by spending", "")
+        mock.generate("From those, filter to California only", "")
+        result = mock.generate("Now restrict to 2024", "")
+        assert result["success"]
+        sql = result["generated_sql"]
+        assert "California" in sql, f"Region lost: {sql}"
+        assert "2024" in sql, f"Year lost: {sql}"
+
+    def test_time_only_followup_modifies_last_sql(self):
+        """A follow-up with only a year (no region/category) must inject
+        the time filter into _last_sql, not return None."""
+        mock = SQLGeneratorMock()
+        mock.generate("Show total sales per region", "")
+        result = mock.generate("Restrict to 2024", "")
+        assert result["success"]
+        sql = result["generated_sql"]
+        assert "2024" in sql, f"Year not injected: {sql}"
+        assert "region" in sql.lower(), f"Original query lost: {sql}"
+
+    def test_percent_of_total_followup_wraps_previous_cohort(self):
+        """'what percent do they represent' after 'top 5 customers' must
+        wrap the top-5 as a cohort CTE and compute share of grand total."""
+        mock = SQLGeneratorMock()
+        mock.generate("Show me top customers by spending", "")
+        result = mock.generate("What percent do they represent?", "")
+        assert result["success"]
+        sql = result["generated_sql"]
+        assert "cohort" in sql.lower(), f"Must wrap as cohort CTE: {sql}"
+        assert "grand_total" in sql.lower(), f"Must have grand total: {sql}"
+        assert "cohort_share_percent" in sql.lower()
+        assert "* 100.0 /" in sql, f"Must use safe division: {sql}"
+        assert "CASE WHEN" in sql.upper(), f"Must guard div-by-zero: {sql}"
+        # Must preserve the LIMIT from the original query
+        assert "LIMIT 5" in sql.upper(), f"Must keep top-5 scope: {sql}"
+
     def test_avg_order_value_uses_order_total_not_line_items(self):
         """AVG order value must use AVG(orders.total_amount), NOT
         AVG(order_items.subtotal) which is per-line-item."""

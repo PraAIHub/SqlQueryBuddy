@@ -3,7 +3,7 @@ import math
 import pytest
 from src.app import QueryBuddyApp
 from src.components.nlp_processor import QueryParser, ContextManager, ConversationTurn
-from src.components.sql_generator import SQLValidator, SQLGeneratorMock
+from src.components.sql_generator import SQLValidator, SQLGeneratorMock, SQLGenerator
 from src.components.optimizer import QueryOptimizer
 from src.components.insights import PatternDetector, TrendAnalyzer, LocalInsightGenerator
 from src.components.rag_system import (
@@ -602,6 +602,74 @@ class TestQueryPlan:
         ctx = manager.get_full_context()
         assert "Active Query State:" in ctx
         assert "Tables: customers" in ctx
+
+
+class TestSQLGeneratorFixes:
+    """Test SQL Generator automatic fixes for common LLM errors."""
+
+    def test_fix_ambiguous_customer_id_in_subquery(self):
+        """Test that ambiguous customer_id references in JOINed subqueries are qualified."""
+        # This is the exact pattern from the error log
+        problematic_sql = (
+            "SELECT c.* FROM customers c WHERE c.customer_id NOT IN ("
+            "SELECT customer_id FROM orders o JOIN customers c2 ON o.customer_id = c2.customer_id "
+            "WHERE c2.region = 'Georgia' AND o.order_date >= date('now', '-3 months')) LIMIT 100;"
+        )
+        fixed_sql = SQLGenerator._fix_ambiguous_columns(problematic_sql)
+        # After fix, the subquery should have o.customer_id (qualified)
+        assert "SELECT o.customer_id FROM orders o JOIN" in fixed_sql
+
+    def test_fix_ambiguous_product_id_in_subquery(self):
+        """Test that ambiguous product_id references are qualified."""
+        problematic_sql = (
+            "SELECT product_id FROM order_items oi "
+            "JOIN products p ON oi.product_id = p.product_id"
+        )
+        fixed_sql = SQLGenerator._fix_ambiguous_columns(problematic_sql)
+        assert "SELECT oi.product_id FROM order_items oi JOIN" in fixed_sql
+
+    def test_fix_ambiguous_order_id_in_subquery(self):
+        """Test that ambiguous order_id references are qualified."""
+        problematic_sql = (
+            "SELECT order_id FROM orders o "
+            "JOIN order_items oi ON o.order_id = oi.order_id"
+        )
+        fixed_sql = SQLGenerator._fix_ambiguous_columns(problematic_sql)
+        assert "SELECT o.order_id FROM orders o JOIN" in fixed_sql
+
+    def test_fix_ambiguous_with_distinct(self):
+        """Test that DISTINCT queries are also fixed correctly."""
+        problematic_sql = (
+            "SELECT DISTINCT customer_id FROM orders o "
+            "JOIN customers c ON o.customer_id = c.customer_id"
+        )
+        fixed_sql = SQLGenerator._fix_ambiguous_columns(problematic_sql)
+        assert "SELECT DISTINCT o.customer_id FROM orders o JOIN" in fixed_sql
+
+    def test_fix_preserves_already_qualified_columns(self):
+        """Test that already-qualified columns are not double-qualified."""
+        good_sql = (
+            "SELECT o.customer_id FROM orders o "
+            "JOIN customers c ON o.customer_id = c.customer_id"
+        )
+        fixed_sql = SQLGenerator._fix_ambiguous_columns(good_sql)
+        # Should remain unchanged
+        assert fixed_sql == good_sql
+
+    def test_fix_does_not_affect_non_join_queries(self):
+        """Test that queries without JOINs are not modified."""
+        simple_sql = "SELECT customer_id FROM orders WHERE order_date >= date('now', '-1 month')"
+        fixed_sql = SQLGenerator._fix_ambiguous_columns(simple_sql)
+        assert fixed_sql == simple_sql
+
+    def test_fix_handles_case_insensitive_sql(self):
+        """Test that the fix works with different SQL case styles."""
+        problematic_sql = (
+            "select customer_id from orders o "
+            "join customers c on o.customer_id = c.customer_id"
+        )
+        fixed_sql = SQLGenerator._fix_ambiguous_columns(problematic_sql)
+        assert "o.customer_id" in fixed_sql.lower()
 
 
 if __name__ == "__main__":

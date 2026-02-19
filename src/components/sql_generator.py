@@ -83,6 +83,9 @@ class SQLPromptBuilder:
         "(SELECT customer_id FROM orders WHERE order_date >= date('now', '-3 months'))\n"
         "   WRONG: Never reference orders table columns in WHERE without JOIN\n"
         "   Use NOT IN or NOT EXISTS subquery, never LEFT JOIN (causes duplicates).\n"
+        "   COLUMN QUALIFICATION: When a subquery JOINs multiple tables, ALWAYS "
+        "explicitly qualify column names with table aliases (e.g., o.customer_id, "
+        "not just customer_id) to avoid 'ambiguous column name' errors.\n"
         "6. NEVER reference table aliases that are not in the FROM or JOIN clauses. "
         "All tables used in WHERE must be either in FROM clause or in a subquery.\n"
         "7. For variance/volatility queries: always include the products table JOIN "
@@ -276,6 +279,40 @@ class SQLGenerator:
     }
 
     @staticmethod
+    def _fix_ambiguous_columns(sql: str) -> str:
+        """Fix ambiguous column references in subqueries with JOINs.
+
+        When a subquery has a JOIN and selects a column that exists in multiple
+        tables (like customer_id in both orders and customers), SQLite requires
+        explicit table qualification. This method detects and fixes such cases.
+
+        Example fix:
+        SELECT customer_id FROM orders o JOIN customers c ON ...
+        becomes:
+        SELECT o.customer_id FROM orders o JOIN customers c ON ...
+        """
+        # Pattern: SELECT <unqualified_column> FROM <table> <alias> JOIN
+        # Common ambiguous columns in our schema
+        ambiguous_cols = ["customer_id", "product_id", "order_id"]
+
+        for col in ambiguous_cols:
+            # Match: SELECT customer_id FROM orders o JOIN
+            # or: SELECT DISTINCT customer_id FROM orders o JOIN
+            pattern = rf'\bSELECT\s+(DISTINCT\s+)?{col}\b(\s+FROM\s+(\w+)\s+(\w+)\s+JOIN)'
+
+            def replace_with_qualified(match):
+                distinct = match.group(1) or ""
+                from_clause = match.group(2)
+                table_name = match.group(3)
+                table_alias = match.group(4)
+                # Qualify the column with the first table's alias
+                return f"SELECT {distinct}{table_alias}.{col}{from_clause}"
+
+            sql = re.sub(pattern, replace_with_qualified, sql, flags=re.IGNORECASE)
+
+        return sql
+
+    @staticmethod
     def _fix_alias_scoping(sql: str) -> str:
         """Fix alias references in subqueries/CTEs that lack the required JOIN.
 
@@ -377,6 +414,9 @@ class SQLGenerator:
             # Generate SQL via LangChain LLM (with retry)
             raw_sql = self._invoke_llm(messages)
             generated_sql = self._clean_sql(raw_sql)
+
+            # Fix ambiguous column references in JOINed subqueries
+            generated_sql = self._fix_ambiguous_columns(generated_sql)
 
             # Fix alias scoping issues (e.g. p.category without products JOIN)
             generated_sql = self._fix_alias_scoping(generated_sql)
@@ -784,6 +824,7 @@ class SQLGeneratorMock:
         "filter", "narrow", "only show", "now show", "but only",
         "of those", "of them", "among them", "among those",
         "refine", "drill down", "zoom in",
+        "restrict to", "do they", "they represent", "these represent", "those represent",
     ]
 
     # Map of filter keywords to SQL WHERE conditions
@@ -878,6 +919,24 @@ class SQLGeneratorMock:
             filter_type = "numeric"
 
         if not conditions:
+            # Percent-of-total follow-up ("what percent do they represent?")
+            if any(kw in query_lower for kw in [
+                "percent", "share", "proportion", "represent",
+            ]):
+                pct = self._build_percent_of_total_sql(user_query)
+                if pct:
+                    return pct
+
+            # Time-only follow-up ("restrict to 2024")
+            time_sql = self._apply_time_filter(self._last_sql, user_query)
+            if time_sql != self._last_sql:
+                return {
+                    "success": True,
+                    "generated_sql": time_sql,
+                    "explanation": "This query restricts the previous result by time period.",
+                    "original_query": user_query,
+                }
+
             return None
 
         where_clause = " AND ".join(conditions)
@@ -924,6 +983,48 @@ class SQLGeneratorMock:
             "original_query": user_query,
         }
 
+    # Metric columns that can be summed for percent-of-total
+    _METRIC_COLS = [
+        "total_spent", "total_sales", "total_revenue",
+        "monthly_revenue", "customer_revenue", "region_revenue",
+        "category_revenue",
+    ]
+
+    def _build_percent_of_total_sql(self, user_query: str) -> Optional[Dict[str, str]]:
+        """Wrap _last_sql as a cohort and compute its share of total revenue."""
+        if not self._last_sql:
+            return None
+        base_sql = self._last_sql.rstrip(";").strip()
+        # Skip CTE-based previous queries (can't nest WITH inside WITH)
+        if base_sql.upper().startswith("WITH"):
+            return None
+        # Find the metric column in the previous SQL
+        sql_lower = base_sql.lower()
+        metric_col = None
+        for col in self._METRIC_COLS:
+            if col in sql_lower:
+                metric_col = col
+                break
+        if not metric_col:
+            return None
+        follow_up_sql = (
+            f"WITH cohort AS ({base_sql}), "
+            f"grand AS (SELECT SUM(total_amount) AS grand_total FROM orders) "
+            f"SELECT CASE WHEN g.grand_total = 0 THEN 0 "
+            f"ELSE ROUND(SUM(c.{metric_col}) * 100.0 / g.grand_total, 2) END "
+            f"AS cohort_share_percent "
+            f"FROM cohort c, grand g;"
+        )
+        return {
+            "success": True,
+            "generated_sql": follow_up_sql,
+            "explanation": (
+                "This query calculates what percentage of total revenue "
+                "the previous result set represents."
+            ),
+            "original_query": user_query,
+        }
+
     # Time filter patterns: keyword → SQL WHERE condition
     # These get injected into matched queries when the user mentions a time period
     TIME_FILTERS = [
@@ -936,7 +1037,7 @@ class SQLGeneratorMock:
     ]
 
     # Regex for explicit year mentions like "for 2024", "in 2023"
-    _YEAR_RE = re.compile(r"(?:for|in|of|during)\s+(20\d{2})")
+    _YEAR_RE = re.compile(r"(?:for|in|of|during|to)\s+(20\d{2})")
 
     @staticmethod
     def _apply_time_filter(sql: str, user_query: str) -> str:
