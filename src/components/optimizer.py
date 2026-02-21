@@ -88,10 +88,20 @@ class QueryOptimizer:
 
         return None
 
+    # Schema base tables — SELECT * from these warrants a warning.
+    # SELECT * from a CTE alias (e.g. top_customers, ranked) is fine.
+    _SCHEMA_TABLES = frozenset({"customers", "products", "orders", "order_items"})
+
+    @staticmethod
+    def _select_star_targets_base_table(query: str) -> bool:
+        """Return True only when SELECT * queries a schema base table directly."""
+        matches = re.findall(r'\bSELECT\s+\*\s+FROM\s+(\w+)', query, re.IGNORECASE)
+        return any(m.lower() in QueryOptimizer._SCHEMA_TABLES for m in matches)
+
     @staticmethod
     def _check_select_star(query: str) -> Optional[Dict[str, str]]:
-        """Check for SELECT * usage"""
-        if "SELECT *" in query.upper():
+        """Check for SELECT * usage — only flag when targeting a base table."""
+        if "SELECT *" in query.upper() and QueryOptimizer._select_star_targets_base_table(query):
             return {
                 "type": "efficiency",
                 "category": "performance",
@@ -320,8 +330,9 @@ class QueryOptimizer:
     def check_sensitive_columns(sql_query: str) -> Optional[str]:
         """Return a warning string if the query selects sensitive/PII columns."""
         sql_upper = sql_query.upper()
-        # SELECT * inherently exposes all columns
-        if "SELECT *" in sql_upper:
+        # SELECT * from a base table exposes all columns including PII.
+        # SELECT * from a named CTE is safe — the CTE already restricts columns.
+        if "SELECT *" in sql_upper and QueryOptimizer._select_star_targets_base_table(sql_query):
             return (
                 "SELECT * may expose sensitive columns (email, phone, etc.). "
                 "Specify only the columns you need."
