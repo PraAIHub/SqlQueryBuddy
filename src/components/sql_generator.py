@@ -453,6 +453,11 @@ class SQLGenerator:
             is_follow_up = self._is_follow_up(query_lower)
             previous_sql = self._extract_previous_sql(conversation_history) if is_follow_up else None
 
+            # Preserve the original schema context for explanation generation.
+            # The follow-up injection overwrites schema_context with MANDATORY instructions
+            # that confuse the explanation LLM call into producing verbose/contradictory output.
+            original_schema_context = schema_context
+
             # If follow-up detected with previous SQL, inject MANDATORY template
             if is_follow_up and previous_sql:
                 # Force LLM to use previous SQL as base
@@ -503,8 +508,9 @@ class SQLGenerator:
                     "generated_sql": generated_sql,
                 }
 
-            # Generate explanation
-            explanation = self._generate_explanation(schema_context, generated_sql)
+            # Generate explanation using the original (non-injected) schema context
+            # so the LLM only sees clean schema info, not the MANDATORY follow-up instructions.
+            explanation = self._generate_explanation(original_schema_context, generated_sql)
 
             return {
                 "success": True,

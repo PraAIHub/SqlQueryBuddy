@@ -834,9 +834,9 @@ class QueryBuddyApp:
             # Uses focused business/DB vocabulary to avoid false positives.
             # ---------------------------------------------------------------
             _DB_QUERY_RE = re.compile(
-                r"\b(?:customer|order|product|revenue|sales|amount|category|region|"
-                r"spend|purchase|profit|price|item|invoice|records?|report|"
-                r"percent|share|rank|filter|"
+                r"\b(?:customers?|orders?|ordered|products?|revenue|sales|amount|category|region|"
+                r"spend|spent|purchases?|profit|price|items?|invoice|records?|report|"
+                r"percent|share|rank|filter|inactive|dormant|haven|"
                 r"california|new\s+york|texas|electronics|furniture|accessories|"
                 r"average|total\s+(?:revenue|sales|amount|orders|spent)|"
                 r"top\s+\d+|how many|how much|monthly|yearly|weekly|quarterly|"
