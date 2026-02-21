@@ -158,14 +158,24 @@ class SQLPromptBuilder:
         "     FROM orders o JOIN order_items oi ON o.order_id = oi.order_id\n"
         "     GROUP BY o.order_id HAVING item_count > 3 ORDER BY item_count DESC;\n"
         "   RULE: Every HAVING clause MUST be preceded by a GROUP BY clause.\n"
+        "   For 'how many orders have/contain [condition]' — use a subquery:\n"
+        "   CORRECT: SELECT COUNT(*) AS order_count FROM (\n"
+        "     SELECT o.order_id FROM orders o JOIN order_items oi ON o.order_id = oi.order_id\n"
+        "     GROUP BY o.order_id HAVING COUNT(oi.item_id) > 3\n"
+        "   );\n"
         "14. AVERAGE ORDER VALUE (AOV): AOV = average of individual ORDER amounts, "
         "NOT average of total lifetime spending per customer. "
         "WRONG: SELECT AVG(total_spent) FROM (SELECT SUM(o.total_amount) AS total_spent "
         "FROM orders o GROUP BY o.customer_id) → gives avg lifetime spend (too high)\n"
         "CORRECT: SELECT ROUND(AVG(o.total_amount), 2) AS avg_order_value FROM orders o "
-        "WHERE o.customer_id IN (SELECT customer_id FROM returning_cust)\n"
+        "WHERE o.customer_id IN (SELECT customer_id FROM repeat_buyers)\n"
         "   Always compute AVG over individual order rows, not over per-customer sums.\n"
-        "15. Return ONLY the raw SQL query. No comments, no explanations, "
+        "15. RESERVED CTE NAMES: NEVER use 'returning' as a CTE name — it is a SQLite "
+        "reserved keyword (since SQLite 3.35). It causes: 'near returning: syntax error'.\n"
+        "   WRONG: WITH returning AS (SELECT customer_id FROM orders ...)\n"
+        "   CORRECT: WITH repeat_buyers AS (SELECT customer_id FROM orders ...)\n"
+        "   Also avoid: 'values', 'table', 'index' as CTE names.\n"
+        "16. Return ONLY the raw SQL query. No comments, no explanations, "
         "no markdown. The response must start with SELECT or WITH."
     )
 
@@ -623,6 +633,60 @@ class SQLGenerator:
         return result
 
     @staticmethod
+    def _fix_reserved_cte_names(sql: str) -> str:
+        """Rename SQLite-reserved words used as CTE or table-reference names.
+
+        'returning' became a reserved keyword in SQLite 3.35 (2021).
+        Using it as a CTE name causes: near "returning": syntax error.
+        """
+        # Rename in CTE definition:  WITH returning AS (  or  , returning AS (
+        sql = re.sub(r'\breturning\s+AS\s*\(', 'repeat_buyers AS (', sql, flags=re.IGNORECASE)
+        # Rename in FROM reference:  FROM returning  or  JOIN returning
+        sql = re.sub(r'\bFROM\s+returning\b', 'FROM repeat_buyers', sql, flags=re.IGNORECASE)
+        sql = re.sub(r'\bJOIN\s+returning\b', 'JOIN repeat_buyers', sql, flags=re.IGNORECASE)
+        return sql
+
+    @staticmethod
+    def _split_with_query(sql: str):
+        """Split a WITH…SELECT query into (cte_defs_str, final_select_str).
+
+        Returns (cte_defs, final_select) where cte_defs is the comma-separated
+        CTE definitions WITHOUT the leading 'WITH' keyword, and final_select is
+        the outer SELECT statement that follows all CTEs.
+
+        Returns (None, sql) if sql does not start with WITH.
+        """
+        stripped = sql.strip()
+        if not stripped.upper().startswith('WITH'):
+            return None, stripped
+
+        # Walk through at depth-0 to find the last depth-0 SELECT
+        # (which is the outer query, not the ones inside CTE bodies)
+        depth = 0
+        last_depth0_select = -1
+        i = 0
+        n = len(stripped)
+        while i < n:
+            ch = stripped[i]
+            if ch == '(':
+                depth += 1
+            elif ch == ')':
+                depth -= 1
+            elif depth == 0 and stripped[i:i + 6].upper() == 'SELECT':
+                # Ensure word boundary before SELECT
+                prev_ok = (i == 0) or (not stripped[i - 1].isalnum() and stripped[i - 1] != '_')
+                if prev_ok:
+                    last_depth0_select = i
+            i += 1
+
+        if last_depth0_select <= 4:  # Must be past "WITH " at minimum
+            return None, stripped
+
+        cte_defs = stripped[4:last_depth0_select].strip().rstrip(',').strip()
+        final_select = stripped[last_depth0_select:].strip()
+        return cte_defs, final_select
+
+    @staticmethod
     def _check_having_without_group_by(sql: str) -> bool:
         """Return True if the outer SELECT has HAVING without GROUP BY at depth 0.
 
@@ -708,6 +772,9 @@ class SQLGenerator:
             # Fix spurious GROUP BY on COUNT(DISTINCT) queries
             # (returns 1 per row instead of the total unique count)
             generated_sql = self._fix_spurious_group_by(generated_sql)
+
+            # Rename SQLite-reserved CTE names (e.g. 'returning' → 'repeat_buyers')
+            generated_sql = self._fix_reserved_cte_names(generated_sql)
 
             # Reject HAVING without GROUP BY — treats entire table as one group,
             # giving wrong counts (e.g., 2500 rows instead of the filtered subset).
@@ -852,15 +919,29 @@ class SQLGenerator:
                 "as a group", "combined", "in total",
             ])
 
+            # Build the cohort CTE intro without nesting WITH inside WITH.
+            # When the previous SQL is itself a WITH query we merge its CTEs
+            # into a flat chain:  WITH <prev_ctes>, cohort AS (<prev_final_select>)
+            if clean_prev_sql.upper().strip().startswith('WITH'):
+                _cte_defs, _inner_select = SQLGenerator._split_with_query(clean_prev_sql)
+                if _cte_defs and _inner_select:
+                    _cohort_intro = f"WITH {_cte_defs},\ncohort AS ({_inner_select})"
+                else:
+                    # Fallback — label the whole thing as a comment so LLM sees the SQL
+                    _cohort_intro = f"WITH cohort AS (\n  /* previous query — DO NOT nest WITH inside WITH */\n  {clean_prev_sql}\n)"
+            else:
+                _cohort_intro = f"WITH cohort AS (\n  {clean_prev_sql}\n)"
+
             if _wants_combined:
                 # Single combined cohort share — SUM(cohort) / grand_total
                 pattern_instruction = f"""MANDATORY APPROACH — SINGLE COMBINED PERCENTAGE:
 The user wants ONE number: the combined share of the entire cohort.
 
+CRITICAL: DO NOT add extra JOINs to the cohort CTE — use it exactly as shown below.
+DO NOT nest WITH inside WITH — this is already a flat CTE chain.
+
 ```sql
-WITH cohort AS (
-  {clean_prev_sql}
-),
+{_cohort_intro},
 grand_total AS (
   SELECT COALESCE(SUM(o.total_amount), 0) AS total_revenue FROM orders o
 )
@@ -869,18 +950,19 @@ SELECT
 FROM cohort c, grand_total g;
 ```
 
-Replace [revenue_col] with the revenue column (e.g. total_purchase, total_spent, total_sales).
-Use SUM(c.[revenue_col]) — NOT cohort.* — so you get ONE row with the combined total.
+Replace [revenue_col] with the revenue column from the cohort CTE (e.g. total_purchase, total_spent, total_sales).
+Use SUM(c.[revenue_col]) so you get ONE row with the combined total.
 CRITICAL: grand_total uses FROM orders o (with alias o) — always write it exactly as shown."""
             else:
                 # Per-row breakdown (e.g. "show each customer's share")
                 pattern_instruction = f"""MANDATORY APPROACH FOR PERCENTAGE/SHARE QUERIES:
 Use this CTE pattern to compute share of total revenue:
 
+CRITICAL: DO NOT add extra JOINs to the cohort CTE — use it exactly as shown below.
+DO NOT nest WITH inside WITH — this is already a flat CTE chain.
+
 ```sql
-WITH cohort AS (
-  {clean_prev_sql}
-),
+{_cohort_intro},
 grand_total AS (
   SELECT COALESCE(SUM(o.total_amount), 0) AS total_revenue FROM orders o
 )
@@ -984,7 +1066,17 @@ Always use ROUND(AVG(...), 2) so the result is a clean decimal.
 If the cohort CTE does not expose customer_id, adjust the SELECT to return it."""
 
         else:
-            # Generic: present all patterns and let the LLM choose
+            # Generic: present all patterns and let the LLM choose.
+            # Build a flat cohort intro (no nested WITH) for patterns B and C.
+            if clean_prev_sql.upper().strip().startswith('WITH'):
+                _g_cte_defs, _g_inner = SQLGenerator._split_with_query(clean_prev_sql)
+                if _g_cte_defs and _g_inner:
+                    _g_cohort_intro = f"WITH {_g_cte_defs},\ncohort AS ({_g_inner})"
+                else:
+                    _g_cohort_intro = f"WITH cohort AS (\n  {clean_prev_sql}\n)"
+            else:
+                _g_cohort_intro = f"WITH cohort AS (\n  {clean_prev_sql}\n)"
+
             pattern_instruction = f"""MANDATORY APPROACHES — choose the one that fits the request:
 
 Pattern A — Add WHERE filter (for region/category/date/name filters):
@@ -995,18 +1087,14 @@ Modify the original SQL by injecting WHERE before GROUP BY:
 
 Pattern B — Aggregation on the cohort (averages, counts, sums):
 ```sql
-WITH cohort AS (
-  {clean_prev_sql}
-)
+{_g_cohort_intro}
 SELECT AVG([col]), COUNT(*) FROM orders o
 WHERE o.customer_id IN (SELECT customer_id FROM cohort);
 ```
 
-Pattern C — Percentage/share of total:
+Pattern C — Percentage/share of total (DO NOT nest WITH inside WITH):
 ```sql
-WITH cohort AS (
-  {clean_prev_sql}
-),
+{_g_cohort_intro},
 grand_total AS (SELECT COALESCE(SUM(o.total_amount), 0) AS tot FROM orders o)
 SELECT c.[dim_col], c.[rev_col], ROUND(c.[rev_col] * 100.0 / g.tot, 2) AS pct
 FROM cohort c, grand_total g;

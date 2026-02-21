@@ -1,0 +1,26 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python -m pytest:*)",
+      "Bash(python:*)",
+      "Bash(pip install:*)",
+      "Bash(pip show:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(git push:*)",
+      "Bash(python3:*)",
+      "Bash(git -C /home/rsprasanna/dev/projects/SqlQueryBuddy status)",
+      "Bash(wsl -d Ubuntu-22.04 bash -c \"cd /home/rsprasanna/dev/projects/SqlQueryBuddy && source venv/bin/activate 2>/dev/null || \\(python3 -m venv venv && source venv/bin/activate && pip install -q -r requirements.txt -r requirements-dev.txt\\); source venv/bin/activate && python3 -m pytest tests/ -v --tb=short 2>&1 | tail -80\")",
+      "Bash(wsl -d Ubuntu-22.04 bash -c \"cd /home/rsprasanna/dev/projects/SqlQueryBuddy && git status\")",
+      "Bash(wsl -d Ubuntu-22.04 bash -c \"cd /home/rsprasanna/dev/projects/SqlQueryBuddy && git diff --stat\")",
+      "Bash(wsl -d Ubuntu-22.04 bash -c \"cd /home/rsprasanna/dev/projects/SqlQueryBuddy && git log --oneline -5\")",
+      "Bash(wsl -d Ubuntu-22.04 bash -c \"cd /home/rsprasanna/dev/projects/SqlQueryBuddy && git diff\")",
+      "Bash(wsl:*)",
+      "Bash(ls:*)",
+      "Bash(source:*)",
+      "Bash(git remote:*)",
+      "Bash(git stash:*)",
+      "Bash(git fetch:*)"
+    ]
+  }
+}
