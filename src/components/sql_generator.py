@@ -151,7 +151,14 @@ class SQLPromptBuilder:
         "     FROM orders o JOIN order_items oi ON o.order_id = oi.order_id\n"
         "     GROUP BY o.order_id HAVING item_count > 3 ORDER BY item_count DESC;\n"
         "   RULE: Every HAVING clause MUST be preceded by a GROUP BY clause.\n"
-        "14. Return ONLY the raw SQL query. No comments, no explanations, "
+        "14. AVERAGE ORDER VALUE (AOV): AOV = average of individual ORDER amounts, "
+        "NOT average of total lifetime spending per customer. "
+        "WRONG: SELECT AVG(total_spent) FROM (SELECT SUM(o.total_amount) AS total_spent "
+        "FROM orders o GROUP BY o.customer_id) → gives avg lifetime spend (too high)\n"
+        "CORRECT: SELECT ROUND(AVG(o.total_amount), 2) AS avg_order_value FROM orders o "
+        "WHERE o.customer_id IN (SELECT customer_id FROM returning_cust)\n"
+        "   Always compute AVG over individual order rows, not over per-customer sums.\n"
+        "15. Return ONLY the raw SQL query. No comments, no explanations, "
         "no markdown. The response must start with SELECT or WITH."
     )
 
@@ -848,16 +855,16 @@ WITH cohort AS (
   {clean_prev_sql}
 ),
 grand_total AS (
-  SELECT SUM(total_amount) AS total_revenue FROM orders
+  SELECT COALESCE(SUM(o.total_amount), 0) AS total_revenue FROM orders o
 )
 SELECT
   ROUND(SUM(c.[revenue_col]) * 100.0 / g.total_revenue, 2) AS combined_share_pct
 FROM cohort c, grand_total g;
 ```
 
-Replace [revenue_col] with the revenue column (e.g. total_spent, total_sales).
+Replace [revenue_col] with the revenue column (e.g. total_purchase, total_spent, total_sales).
 Use SUM(c.[revenue_col]) — NOT cohort.* — so you get ONE row with the combined total.
-The grand_total MUST use the full orders table for the correct denominator."""
+CRITICAL: grand_total uses FROM orders o (with alias o) — always write it exactly as shown."""
             else:
                 # Per-row breakdown (e.g. "show each customer's share")
                 pattern_instruction = f"""MANDATORY APPROACH FOR PERCENTAGE/SHARE QUERIES:
@@ -868,16 +875,18 @@ WITH cohort AS (
   {clean_prev_sql}
 ),
 grand_total AS (
-  SELECT SUM(total_amount) AS total_revenue FROM orders
+  SELECT COALESCE(SUM(o.total_amount), 0) AS total_revenue FROM orders o
 )
 SELECT
-  c.*,
+  c.[dimension_col], c.[revenue_col],
   ROUND(c.[revenue_col] * 100.0 / g.total_revenue, 2) AS share_pct
 FROM cohort c, grand_total g
 ORDER BY c.[revenue_col] DESC;
 ```
 
-Replace [revenue_col] with the actual revenue column from the cohort CTE (e.g. total_spent, total_sales).
+Replace [revenue_col] with the actual revenue column from the cohort CTE (e.g. total_purchase, total_spent, total_sales).
+Replace [dimension_col] with the grouping column (e.g. customer_id, name, region).
+CRITICAL: grand_total uses FROM orders o (with alias o) — always write it exactly as shown.
 The grand_total MUST use the full orders table — NOT the cohort — to get the correct denominator."""
 
         elif is_filter_query:
@@ -991,9 +1000,9 @@ Pattern C — Percentage/share of total:
 WITH cohort AS (
   {clean_prev_sql}
 ),
-grand_total AS (SELECT SUM(total_amount) AS tot FROM orders)
-SELECT cohort.*, ROUND(revenue_col * 100.0 / grand_total.tot, 2) AS pct
-FROM cohort, grand_total;
+grand_total AS (SELECT COALESCE(SUM(o.total_amount), 0) AS tot FROM orders o)
+SELECT c.[dim_col], c.[rev_col], ROUND(c.[rev_col] * 100.0 / g.tot, 2) AS pct
+FROM cohort c, grand_total g;
 ```"""
 
         follow_up_instruction = f"""
