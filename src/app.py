@@ -896,19 +896,29 @@ class QueryBuddyApp:
 
             # Only append full schema when RAG finds nothing relevant (fallback)
             entities_str = ", ".join(entities) if entities else "none"
+            # Data-range hint: tells the LLM the actual date span of the database
+            # so time queries like "in January" or "last 3 months" resolve correctly.
+            _DATA_RANGE_HINT = (
+                "Data range: 2023-01-01 to 2026-02-12. "
+                "For queries without a specific year (e.g. 'in January', 'this year', "
+                "'last month'), default to the most recent available data (2026). "
+                "Relative expressions like 'last 3 months' and 'this month' will return results."
+            )
             if "No relevant schema found" in rag_context:
                 full_schema_str = self._format_schema(schema)
                 schema_str = (
                     f"{rag_context}\n\n"
                     f"Detected intent: {intent}\n"
                     f"Referenced entities: {entities_str}\n\n"
+                    f"{_DATA_RANGE_HINT}\n\n"
                     f"Full Schema:\n{full_schema_str}"
                 )
             else:
                 schema_str = (
                     f"{rag_context}\n\n"
                     f"Detected intent: {intent}\n"
-                    f"Referenced entities: {entities_str}"
+                    f"Referenced entities: {entities_str}\n\n"
+                    f"{_DATA_RANGE_HINT}"
                 )
 
             # Append active filters context — advisory only (LLM applies only when relevant)
@@ -1228,15 +1238,21 @@ class QueryBuddyApp:
                 )
 
             # Add categorized optimization suggestions as colored callouts
+            # These are informational analysis notes — not queries to submit.
             opt_result = self.optimizer.analyze(generated_sql, user_message)
             categorized = opt_result.get("categorized", {})
+            _hint_label = (
+                "<span style='font-size:10px; font-weight:normal; color:#6b7280; "
+                "margin-left:6px; font-style:italic;'>ℹ️ informational</span>"
+            )
 
             if categorized.get("assumptions"):
                 items = "".join(f"<li>{s['suggestion']}</li>" for s in categorized["assumptions"])
                 response_lines.append(
                     f"\n<div style='border-left: 3px solid #9ca3af; padding: 6px 12px; margin: 8px 0; "
-                    f"background: #f9fafb; border-radius: 0 6px 6px 0; font-size: 13px;'>"
-                    f"<strong>Assumptions</strong><ul style='margin: 4px 0 0 0; padding-left: 18px;'>{items}</ul></div>"
+                    f"background: #f9fafb; border-radius: 0 6px 6px 0; font-size: 13px; pointer-events: none;'>"
+                    f"<strong>Assumptions</strong>{_hint_label}"
+                    f"<ul style='margin: 4px 0 0 0; padding-left: 18px;'>{items}</ul></div>"
                 )
 
             if categorized.get("performance"):
@@ -1246,16 +1262,18 @@ class QueryBuddyApp:
                 )
                 response_lines.append(
                     f"\n<div style='border-left: 3px solid #f59e0b; padding: 6px 12px; margin: 8px 0; "
-                    f"background: #fffbeb; border-radius: 0 6px 6px 0; font-size: 13px;'>"
-                    f"<strong>Performance</strong><ul style='margin: 4px 0 0 0; padding-left: 18px;'>{items}</ul></div>"
+                    f"background: #fffbeb; border-radius: 0 6px 6px 0; font-size: 13px; pointer-events: none;'>"
+                    f"<strong>Performance</strong>{_hint_label}"
+                    f"<ul style='margin: 4px 0 0 0; padding-left: 18px;'>{items}</ul></div>"
                 )
 
             if categorized.get("next_steps"):
                 items = "".join(f"<li>{s['suggestion']}</li>" for s in categorized["next_steps"])
                 response_lines.append(
                     f"\n<div style='border-left: 3px solid #3b82f6; padding: 6px 12px; margin: 8px 0; "
-                    f"background: #eff6ff; border-radius: 0 6px 6px 0; font-size: 13px;'>"
-                    f"<strong>Next Steps</strong><ul style='margin: 4px 0 0 0; padding-left: 18px;'>{items}</ul></div>"
+                    f"background: #eff6ff; border-radius: 0 6px 6px 0; font-size: 13px; pointer-events: none;'>"
+                    f"<strong>Next Steps</strong>{_hint_label}"
+                    f"<ul style='margin: 4px 0 0 0; padding-left: 18px;'>{items}</ul></div>"
                 )
 
             # Generate AI insights (displayed in dedicated panel)
