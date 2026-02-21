@@ -132,7 +132,14 @@ class SQLPromptBuilder:
         "         ROUND(MAX(CASE WHEN rnk=1 THEN total_sales END) -\n"
         "               MAX(CASE WHEN rnk=2 THEN total_sales END), 2) AS difference\n"
         "  FROM ranked WHERE rnk <= 2;\n"
-        "12. Return ONLY the raw SQL query. No comments, no explanations, "
+        "12. COUNT(DISTINCT) ANTI-PATTERN: NEVER add GROUP BY on the column being "
+        "counted — it returns 1 per row instead of the total unique count.\n"
+        "   WRONG: SELECT COUNT(DISTINCT oi.product_id) AS cnt FROM order_items oi GROUP BY oi.product_id\n"
+        "     → returns 25 rows each with cnt=1 (wrong!)\n"
+        "   CORRECT: SELECT COUNT(DISTINCT oi.product_id) AS cnt FROM order_items oi\n"
+        "     → returns 1 row with cnt=25 (correct)\n"
+        "   If you need per-group counts use a non-DISTINCT aggregate: COUNT(*) or SUM(...).\n"
+        "13. Return ONLY the raw SQL query. No comments, no explanations, "
         "no markdown. The response must start with SELECT or WITH."
     )
 
@@ -440,6 +447,155 @@ class SQLGenerator:
                 result = result[:start] + fixed_body + result[end:]
         return result
 
+    # Regex to detect aggregate function starts (handles ROUND/COALESCE wrappers)
+    _AGGREGATE_START_RE = re.compile(
+        r"^\s*(?:ROUND\s*\(\s*)?(?:COALESCE\s*\(\s*)?"
+        r"(?:COUNT|SUM|AVG|MIN|MAX|TOTAL|GROUP_CONCAT)\s*\(",
+        re.IGNORECASE,
+    )
+
+    @staticmethod
+    def _select_list_all_aggregates(select_str: str) -> bool:
+        """Return True if every comma-separated expression in select_str is an aggregate."""
+        # Split at depth-0 commas
+        depth = 0
+        exprs: List[str] = []
+        start = 0
+        for i, ch in enumerate(select_str):
+            if ch == "(":
+                depth += 1
+            elif ch == ")":
+                depth -= 1
+            elif ch == "," and depth == 0:
+                exprs.append(select_str[start:i].strip())
+                start = i + 1
+        exprs.append(select_str[start:].strip())
+
+        for expr in exprs:
+            if not expr:
+                continue
+            # Strip trailing AS alias before testing
+            no_alias = re.sub(r"\s+AS\s+\w+\s*$", "", expr, flags=re.IGNORECASE).strip()
+            if not SQLGenerator._AGGREGATE_START_RE.match(no_alias):
+                return False
+        return bool(exprs)
+
+    @staticmethod
+    def _fix_spurious_group_by(sql: str) -> str:
+        """Remove GROUP BY when every SELECT expression is an aggregate function.
+
+        Corrects the LLM anti-pattern:
+            SELECT COUNT(DISTINCT product_id) AS cnt FROM order_items GROUP BY product_id
+        which returns one row per distinct value (each with cnt=1) instead of
+        the single total count. Applies to both top-level SELECT and CTE bodies.
+        """
+
+        def _fix_block(block: str) -> str:
+            """Remove spurious GROUP BY from a single SELECT block."""
+            stripped = block.strip()
+            upper = stripped.upper()
+            if "GROUP BY" not in upper:
+                return block
+            if not upper.lstrip().startswith("SELECT"):
+                return block
+
+            # Find depth-0 FROM position to isolate the SELECT list
+            depth = 0
+            from_pos = -1
+            for i, ch in enumerate(stripped):
+                if ch == "(":
+                    depth += 1
+                elif ch == ")":
+                    depth -= 1
+                elif depth == 0:
+                    candidate = stripped[i:i + 4].upper()
+                    if candidate == "FROM" and (i == 0 or not stripped[i - 1].isalpha()):
+                        from_pos = i
+                        break
+
+            if from_pos == -1:
+                return block
+
+            # SELECT list is between "SELECT" (7 chars) and FROM
+            select_keyword_len = len("SELECT")
+            select_list = stripped[select_keyword_len:from_pos].strip()
+
+            if not SQLGenerator._select_list_all_aggregates(select_list):
+                return block  # Non-aggregate columns present → GROUP BY is valid
+
+            # Find depth-0 GROUP BY position (after FROM)
+            depth = 0
+            group_by_pos = -1
+            i = from_pos
+            while i < len(stripped):
+                ch = stripped[i]
+                if ch == "(":
+                    depth += 1
+                elif ch == ")":
+                    depth -= 1
+                elif depth == 0 and stripped[i:i + 8].upper() == "GROUP BY":
+                    if i == 0 or not stripped[i - 1].isalpha():
+                        group_by_pos = i
+                        break
+                i += 1
+
+            if group_by_pos == -1:
+                return block
+
+            # Find where the GROUP BY clause ends (next depth-0 clause keyword or end)
+            depth = 0
+            i = group_by_pos + 8  # past "GROUP BY"
+            next_clause_pos = len(stripped)
+            while i < len(stripped):
+                ch = stripped[i]
+                if ch == "(":
+                    depth += 1
+                elif ch == ")":
+                    depth -= 1
+                elif depth == 0:
+                    rest_up = stripped[i:].upper()
+                    if any(rest_up.startswith(kw) for kw in ("HAVING ", "ORDER BY", "LIMIT ", ";")):
+                        next_clause_pos = i
+                        break
+                i += 1
+
+            # Splice out the GROUP BY clause
+            fixed = (stripped[:group_by_pos].rstrip()
+                     + " " + stripped[next_clause_pos:].lstrip()).strip()
+            # Preserve surrounding whitespace from original block
+            return fixed
+
+        # Apply to CTE bodies (reuse the same balanced-paren scanner)
+        def _find_cte_bodies(sql_text: str) -> list:
+            bodies = []
+            for m in re.finditer(r"AS\s*\(", sql_text, re.IGNORECASE):
+                open_pos = m.end() - 1
+                depth = 1
+                j = open_pos + 1
+                while j < len(sql_text) and depth > 0:
+                    if sql_text[j] == "(":
+                        depth += 1
+                    elif sql_text[j] == ")":
+                        depth -= 1
+                    j += 1
+                if depth == 0:
+                    bodies.append((open_pos + 1, j - 1))
+            return bodies
+
+        result = sql
+        for start, end in reversed(_find_cte_bodies(result)):
+            body = result[start:end]
+            fixed_body = _fix_block(body)
+            if fixed_body != body:
+                result = result[:start] + fixed_body + result[end:]
+
+        # Also fix the outer/final SELECT (not inside any CTE)
+        # Only if the whole query starts with SELECT (not a WITH CTE)
+        if result.strip().upper().startswith("SELECT"):
+            result = _fix_block(result)
+
+        return result
+
     def generate(
         self,
         user_query: str,
@@ -488,6 +644,10 @@ class SQLGenerator:
 
             # Fix alias scoping issues (e.g. p.category without products JOIN)
             generated_sql = self._fix_alias_scoping(generated_sql)
+
+            # Fix spurious GROUP BY on COUNT(DISTINCT) queries
+            # (returns 1 per row instead of the total unique count)
+            generated_sql = self._fix_spurious_group_by(generated_sql)
 
             # Block nested aggregates (e.g. SUM(... AVG(...) ...))
             nested, nest_msg, nest_suggestion = detect_nested_aggregates(generated_sql)

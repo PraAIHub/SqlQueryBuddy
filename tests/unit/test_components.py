@@ -759,5 +759,94 @@ class TestSQLGeneratorOriginalSchemaContext:
             pass  # SQLGenerator may not be fully initialized without API key
 
 
+class TestFixSpuriousGroupBy:
+    """Regression tests for _fix_spurious_group_by.
+
+    When the LLM emits COUNT(DISTINCT col) ... GROUP BY col, each group
+    contains exactly one distinct value so the count is always 1.  The fixer
+    removes the GROUP BY so the query returns the correct total.
+    """
+
+    def test_removes_group_by_from_count_distinct_query(self):
+        """Core bug: COUNT(DISTINCT col) GROUP BY col → strip GROUP BY."""
+        sql = (
+            "SELECT COUNT(DISTINCT oi.product_id) AS unique_products_sold "
+            "FROM orders o JOIN order_items oi ON o.order_id = oi.order_id "
+            "WHERE strftime('%Y-%m', o.order_date) = '2023-01' "
+            "GROUP BY oi.product_id"
+        )
+        fixed = SQLGenerator._fix_spurious_group_by(sql)
+        assert "GROUP BY" not in fixed.upper()
+        assert "COUNT(DISTINCT" in fixed.upper()
+
+    def test_preserves_group_by_when_non_aggregate_column_selected(self):
+        """GROUP BY must stay when a non-aggregate column is in the SELECT list."""
+        sql = (
+            "SELECT p.category, COUNT(DISTINCT oi.product_id) AS unique_products "
+            "FROM products p JOIN order_items oi ON p.product_id = oi.product_id "
+            "GROUP BY p.category"
+        )
+        fixed = SQLGenerator._fix_spurious_group_by(sql)
+        assert "GROUP BY" in fixed.upper()
+
+    def test_removes_group_by_with_coalesce_wrapper(self):
+        """COALESCE(COUNT(DISTINCT ...), 0) is still an aggregate — remove GROUP BY."""
+        sql = (
+            "SELECT COALESCE(COUNT(DISTINCT oi.product_id), 0) AS cnt "
+            "FROM order_items oi "
+            "GROUP BY oi.product_id"
+        )
+        fixed = SQLGenerator._fix_spurious_group_by(sql)
+        assert "GROUP BY" not in fixed.upper()
+
+    def test_removes_group_by_inside_cte_body(self):
+        """Fix must also apply to CTE bodies, not only top-level SELECT."""
+        sql = (
+            "WITH unique_products AS ("
+            "SELECT COUNT(DISTINCT oi.product_id) AS cnt "
+            "FROM orders o JOIN order_items oi ON o.order_id = oi.order_id "
+            "WHERE strftime('%Y-%m', o.order_date) = '2023-01' "
+            "GROUP BY oi.product_id"
+            ") "
+            "SELECT COALESCE(cnt, 0) AS unique_products_sold FROM unique_products"
+        )
+        fixed = SQLGenerator._fix_spurious_group_by(sql)
+        # The GROUP BY inside the CTE should be removed
+        assert "GROUP BY" not in fixed.upper()
+
+    def test_no_group_by_query_unchanged(self):
+        """Queries without GROUP BY must not be modified."""
+        sql = (
+            "SELECT COUNT(DISTINCT oi.product_id) AS unique_products_sold "
+            "FROM orders o JOIN order_items oi ON o.order_id = oi.order_id "
+            "WHERE strftime('%Y-%m', o.order_date) = '2023-01'"
+        )
+        fixed = SQLGenerator._fix_spurious_group_by(sql)
+        assert fixed.strip() == sql.strip()
+
+    def test_multiple_aggregates_group_by_removed(self):
+        """Multiple aggregate columns with no non-aggregate → GROUP BY removed."""
+        sql = (
+            "SELECT COUNT(DISTINCT oi.product_id) AS unique_products, "
+            "SUM(o.total_amount) AS revenue "
+            "FROM orders o JOIN order_items oi ON o.order_id = oi.order_id "
+            "GROUP BY oi.product_id"
+        )
+        fixed = SQLGenerator._fix_spurious_group_by(sql)
+        assert "GROUP BY" not in fixed.upper()
+
+    def test_order_by_preserved_after_group_by_removal(self):
+        """Any ORDER BY after the spurious GROUP BY must be kept."""
+        sql = (
+            "SELECT COUNT(DISTINCT oi.product_id) AS cnt "
+            "FROM order_items oi "
+            "GROUP BY oi.product_id "
+            "ORDER BY cnt DESC"
+        )
+        fixed = SQLGenerator._fix_spurious_group_by(sql)
+        assert "GROUP BY" not in fixed.upper()
+        assert "ORDER BY" in fixed.upper()
+
+
 if __name__ == "__main__":
     pytest.main([__file__])
