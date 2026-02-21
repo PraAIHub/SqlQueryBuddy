@@ -848,5 +848,67 @@ class TestFixSpuriousGroupBy:
         assert "ORDER BY" in fixed.upper()
 
 
+class TestCheckHavingWithoutGroupBy:
+    """Regression tests for _check_having_without_group_by.
+
+    HAVING without GROUP BY treats the entire table as one group, producing
+    wrong aggregate results.  The checker scans at depth 0 so that valid
+    HAVING+GROUP BY inside CTE bodies (depth > 0) are not flagged.
+    """
+
+    def test_detects_having_without_group_by(self):
+        """Basic anti-pattern: outer HAVING, no GROUP BY."""
+        sql = (
+            "SELECT COUNT(DISTINCT oi.order_id) "
+            "FROM order_items oi "
+            "HAVING SUM(oi.quantity) > 3"
+        )
+        assert SQLGenerator._check_having_without_group_by(sql) is True
+
+    def test_does_not_flag_having_with_group_by(self):
+        """Valid SQL: HAVING accompanied by GROUP BY is fine."""
+        sql = (
+            "SELECT o.order_id, COUNT(oi.item_id) AS item_count "
+            "FROM orders o JOIN order_items oi ON o.order_id = oi.order_id "
+            "GROUP BY o.order_id "
+            "HAVING item_count > 3"
+        )
+        assert SQLGenerator._check_having_without_group_by(sql) is False
+
+    def test_does_not_flag_cte_having_with_group_by(self):
+        """HAVING+GROUP BY inside a CTE body must not trigger the outer check."""
+        sql = (
+            "WITH filtered AS ("
+            "SELECT o.order_id, COUNT(oi.item_id) AS item_count "
+            "FROM orders o JOIN order_items oi ON o.order_id = oi.order_id "
+            "GROUP BY o.order_id HAVING item_count > 3"
+            ") "
+            "SELECT COUNT(*) FROM filtered"
+        )
+        assert SQLGenerator._check_having_without_group_by(sql) is False
+
+    def test_does_not_flag_no_having(self):
+        """Plain GROUP BY query with no HAVING is fine."""
+        sql = (
+            "SELECT c.region, SUM(o.total_amount) AS total "
+            "FROM customers c JOIN orders o ON c.customer_id = o.customer_id "
+            "GROUP BY c.region ORDER BY total DESC"
+        )
+        assert SQLGenerator._check_having_without_group_by(sql) is False
+
+    def test_does_not_flag_simple_aggregate(self):
+        """Simple aggregate with no HAVING is fine."""
+        sql = "SELECT COUNT(DISTINCT oi.product_id) AS cnt FROM order_items oi"
+        assert SQLGenerator._check_having_without_group_by(sql) is False
+
+    def test_detects_count_star_having_sum(self):
+        """COUNT(*) HAVING SUM(...) > N without GROUP BY — wrong result pattern."""
+        sql = (
+            "SELECT COUNT(*) FROM order_items oi "
+            "HAVING SUM(oi.quantity) > 10"
+        )
+        assert SQLGenerator._check_having_without_group_by(sql) is True
+
+
 if __name__ == "__main__":
     pytest.main([__file__])

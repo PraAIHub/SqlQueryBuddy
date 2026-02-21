@@ -139,7 +139,16 @@ class SQLPromptBuilder:
         "   CORRECT: SELECT COUNT(DISTINCT oi.product_id) AS cnt FROM order_items oi\n"
         "     → returns 1 row with cnt=25 (correct)\n"
         "   If you need per-group counts use a non-DISTINCT aggregate: COUNT(*) or SUM(...).\n"
-        "13. Return ONLY the raw SQL query. No comments, no explanations, "
+        "13. HAVING REQUIRES GROUP BY: NEVER use HAVING without GROUP BY. "
+        "HAVING without GROUP BY treats the entire table as a single group — "
+        "giving wrong counts (e.g., COUNT(*) returns all rows instead of matching groups).\n"
+        "   WRONG: SELECT COUNT(DISTINCT oi.order_id) FROM order_items oi HAVING SUM(oi.quantity) > 3\n"
+        "     → SUM applies to ALL rows at once; if > 3, returns total row count (wrong!)\n"
+        "   CORRECT: SELECT o.order_id, COUNT(oi.item_id) AS item_count\n"
+        "     FROM orders o JOIN order_items oi ON o.order_id = oi.order_id\n"
+        "     GROUP BY o.order_id HAVING item_count > 3 ORDER BY item_count DESC;\n"
+        "   RULE: Every HAVING clause MUST be preceded by a GROUP BY clause.\n"
+        "14. Return ONLY the raw SQL query. No comments, no explanations, "
         "no markdown. The response must start with SELECT or WITH."
     )
 
@@ -596,6 +605,40 @@ class SQLGenerator:
 
         return result
 
+    @staticmethod
+    def _check_having_without_group_by(sql: str) -> bool:
+        """Return True if the outer SELECT has HAVING without GROUP BY at depth 0.
+
+        HAVING without GROUP BY treats the entire table as one group, producing
+        wrong aggregate results (e.g., COUNT(*) returns all rows instead of just
+        matching groups). We scan at depth 0 only so that valid HAVING+GROUP BY
+        inside CTE bodies (which are at depth > 0) are not flagged.
+        """
+        stripped = sql.strip()
+        upper_sql = stripped.upper()
+
+        depth = 0
+        has_group_by = False
+        has_having = False
+
+        i = 0
+        while i < len(stripped):
+            ch = stripped[i]
+            if ch == "(":
+                depth += 1
+            elif ch == ")":
+                depth -= 1
+            elif depth == 0:
+                rest = upper_sql[i:]
+                prev_alpha = i > 0 and stripped[i - 1].isalpha()
+                if not prev_alpha and rest.startswith("GROUP BY"):
+                    has_group_by = True
+                elif not prev_alpha and rest.startswith("HAVING"):
+                    has_having = True
+            i += 1
+
+        return has_having and not has_group_by
+
     def generate(
         self,
         user_query: str,
@@ -648,6 +691,24 @@ class SQLGenerator:
             # Fix spurious GROUP BY on COUNT(DISTINCT) queries
             # (returns 1 per row instead of the total unique count)
             generated_sql = self._fix_spurious_group_by(generated_sql)
+
+            # Reject HAVING without GROUP BY — treats entire table as one group,
+            # giving wrong counts (e.g., 2500 rows instead of the filtered subset).
+            if self._check_having_without_group_by(generated_sql):
+                logger.warning(
+                    "HAVING without GROUP BY detected — rejecting SQL: %.200s",
+                    generated_sql,
+                )
+                return {
+                    "success": False,
+                    "error": (
+                        "The generated SQL uses HAVING without GROUP BY, which gives "
+                        "incorrect results (treats the entire table as one group). "
+                        "Try rephrasing: e.g., 'orders that contain more than 3 items' "
+                        "should use GROUP BY order_id HAVING COUNT(*) > 3."
+                    ),
+                    "generated_sql": generated_sql,
+                }
 
             # Block nested aggregates (e.g. SUM(... AVG(...) ...))
             nested, nest_msg, nest_suggestion = detect_nested_aggregates(generated_sql)
@@ -703,7 +764,20 @@ class SQLGenerator:
             prompt = self.prompt_builder.build_explanation_prompt(
                 schema_context=schema_context, generated_sql=generated_sql
             )
-            response = self.llm.invoke(prompt)
+            if SystemMessage and HumanMessage:
+                messages = [
+                    SystemMessage(content=(
+                        "You are a SQL explanation assistant. Your ONLY job is to describe "
+                        "what the given SQL query does in plain English in 2-3 sentences. "
+                        "DO NOT critique the query. DO NOT suggest corrections or alternatives. "
+                        "DO NOT mention schema issues, invalid references, or missing columns. "
+                        "DO NOT provide a corrected version. Just describe what the query does."
+                    )),
+                    HumanMessage(content=prompt),
+                ]
+                response = self.llm.invoke(messages)
+            else:
+                response = self.llm.invoke(prompt)
             return response.content.strip()
         except Exception:
             return "Unable to generate explanation"
