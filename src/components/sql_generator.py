@@ -110,6 +110,9 @@ class SQLPromptBuilder:
         "8. COLUMN SELECTION: Never use SELECT *. Always name the specific columns "
         "you need. Never include email, phone, password, or other PII columns "
         "unless the user explicitly asks for contact details.\n"
+        "   For customer queries always include c.name so the user can identify who the customer is.\n"
+        "   WRONG: SELECT c.customer_id, SUM(o.total_amount) AS total_purchase ...\n"
+        "   CORRECT: SELECT c.customer_id, c.name, SUM(o.total_amount) AS total_purchase ...\n"
         "9. ROUNDING: Always wrap AVG(), division results, and share percentages "
         "with ROUND(..., 2) so results display as clean decimals.\n"
         "10. NULL PREVENTION: SUM() on an empty set returns NULL, not 0. "
@@ -912,23 +915,38 @@ CRITICAL RULES:
 5. Use the correct table alias for the filter column (e.g. c.region, not just region)"""
 
         elif is_difference_query:
-            # Compute top1 - top2 from the previous ranked result
-            pattern_instruction = f"""MANDATORY APPROACH FOR DIFFERENCE/COMPARISON QUERIES:
-Use a CTE to get ranked positions from the previous result, then compute the gap:
+            # Compute gap between #1 and #2 using RANK() OVER — NEVER LIMIT 1/OFFSET 1.
+            # LIMIT without ORDER BY gives arbitrary rows, not the top row.
+            # Also avoid nesting WITH inside another WITH (invalid in SQLite).
+            pattern_instruction = f"""MANDATORY APPROACH FOR RANKING-GAP QUERIES:
+Use RANK() OVER to compute the ranking dynamically. Reference the previous query logic:
 
+Previous query:
 ```sql
-WITH ranked AS (
-  {clean_prev_sql}
-),
-top1 AS (SELECT [metric_col] AS val FROM ranked LIMIT 1),
-top2 AS (SELECT [metric_col] AS val FROM ranked LIMIT 1 OFFSET 1)
-SELECT
-  (SELECT val FROM top1) AS rank_1_value,
-  (SELECT val FROM top2) AS rank_2_value,
-  ROUND((SELECT val FROM top1) - (SELECT val FROM top2), 2) AS difference;
+{clean_prev_sql}
 ```
 
-Replace [metric_col] with the actual numeric column from the ranked CTE."""
+REQUIRED PATTERN — always use RANK() OVER, not LIMIT 1 / LIMIT 1 OFFSET 1:
+```sql
+WITH ranked AS (
+  SELECT [dimension_col], [metric_col],
+         RANK() OVER (ORDER BY [metric_col] DESC) AS rnk
+  FROM [tables with all required JOINs]
+  GROUP BY [dimension_col]
+)
+SELECT
+  MAX(CASE WHEN rnk = 1 THEN [dimension_col] END) AS rank_1_name,
+  MAX(CASE WHEN rnk = 1 THEN [metric_col] END)    AS rank_1_value,
+  MAX(CASE WHEN rnk = 2 THEN [dimension_col] END) AS rank_2_name,
+  MAX(CASE WHEN rnk = 2 THEN [metric_col] END)    AS rank_2_value,
+  ROUND(MAX(CASE WHEN rnk = 1 THEN [metric_col] END) -
+        MAX(CASE WHEN rnk = 2 THEN [metric_col] END), 2) AS difference
+FROM ranked WHERE rnk <= 2;
+```
+
+Replace [dimension_col] with the grouping column (e.g. region, category, name) and
+[metric_col] with the numeric column (e.g. total_sales, total_revenue).
+CRITICAL: Write a FLAT single CTE — do NOT nest WITH inside another WITH clause."""
 
         elif is_aov_query:
             # Average order value for a cohort of customers — join orders
